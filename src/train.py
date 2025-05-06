@@ -10,10 +10,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from datasets import load_dataset, DatasetDict
+from models import ModernBertForSentiment
 from transformers import (
     AutoTokenizer,
     ModernBertConfig,
     ModernBertForSequenceClassification,
+    ModernBertModel
 )
 from sklearn.metrics import accuracy_score, f1_score
 from data_processing import download_and_prepare_datasets, create_dataloaders
@@ -49,11 +51,25 @@ def train(config):
 
     bert_config = ModernBertConfig.from_pretrained(model_config['name'])
     bert_config.classifier_dropout = model_config['dropout']
-    bert_config.num_labels = 1  # Set num_labels for regression/single logit
-    model = ModernBertForSequenceClassification.from_pretrained(
+    bert_config.num_labels = 1  # Ensure config has num_labels
+
+    # 1. Load the pre-trained base BERT model
+    print("Loading pre-trained base ModernBertModel...")
+    base_bert_model = ModernBertModel.from_pretrained(
         model_config['name'],
-        config=bert_config
+        config=bert_config # Pass config if needed for architecture consistency
     )
+
+    # 2. Instantiate the custom model wrapper from config ONLY
+    # This initializes the structure including the classifier head, but doesn't load bert weights
+    print("Instantiating custom model structure...")
+    model = ModernBertForSentiment(config=bert_config)
+
+    # 3. Manually assign the loaded pre-trained bert model to the custom model's bert attribute
+    print("Assigning pre-trained base model to custom model...")
+    model.bert = base_bert_model
+
+    # Now, model.bert has pre-trained weights, and model.classifier is randomly initialized.
     model.to(device)
 
     optimizer = AdamW(model.parameters(), lr=training_config['lr'], weight_decay=training_config['weight_decay_rate'])
@@ -68,15 +84,10 @@ def train(config):
     for epoch in range(1, training_config['epochs'] + 1):
         model.train()
         for step, batch in enumerate(train_dl, 1):
-            # Remove 'lengths' as the standard model doesn't expect it
-            # Cast labels to float for MSELoss (when num_labels=1)
-            batch = {k: v.to(device) for k, v in batch.items() if k != 'lengths'}
-            if 'labels' in batch:
-                batch['labels'] = batch['labels'].float()
+            batch = {k: v.to(device) for k, v in batch.items()}
 
-            # Ensure labels are passed for the model's internal loss calculation
             outputs = model(**batch)
-            loss = outputs.loss # Get loss directly from the standard output object
+            loss = outputs.loss # Get loss directly from the output object
 
             loss.backward()
             optimizer.step()
