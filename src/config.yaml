@@ -1,7 +1,7 @@
 model:
   name: "answerdotai/ModernBERT-base"
   output_dir: "checkpoints"
-  max_length: 256
+  max_length: 320 # 256
   dropout: 0.07
 
 data:
@@ -10,11 +10,15 @@ data:
 training:
   epochs: 2
   batch_size: 16
-  lr: 2.0e-5
+  lr: 1e-4 # 2.0e-5
   weight_decay_rate: 0.01
 
 inference:
   # Default path, can be overridden
   model_path: "checkpoints/best_model.pt" 
   # Using the same max_length as training for consistency
-  max_length: 256
+  max_length: 320 # 256
+
+
+# "answerdotai/ModernBERT-base"
+# "answerdotai/ModernBERT-large"
