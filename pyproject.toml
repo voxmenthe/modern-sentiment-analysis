@@ -9,7 +9,9 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-ipykernel = ">=6.29,<7.0"
+ipykernel = "*"
+ipywidgets = "*"
+tqdm = "*"
 transformers = "^4.51.3"
 torch = "^2.7.0"
 datasets = "^2.16.1"

@@ -10,10 +10,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from datasets import load_dataset, DatasetDict
-from models import ModernBertForSentiment
 from transformers import (
     AutoTokenizer,
-    ModernBertConfig
+    ModernBertConfig,
+    ModernBertForSequenceClassification,
 )
 from sklearn.metrics import accuracy_score, f1_score
 from data_processing import download_and_prepare_datasets, create_dataloaders
@@ -49,7 +49,8 @@ def train(config):
 
     bert_config = ModernBertConfig.from_pretrained(model_config['name'])
     bert_config.classifier_dropout = model_config['dropout']
-    model = ModernBertForSentiment.from_pretrained(
+    bert_config.num_labels = 1  # Set num_labels for regression/single logit
+    model = ModernBertForSequenceClassification.from_pretrained(
         model_config['name'],
         config=bert_config
     )
@@ -67,9 +68,16 @@ def train(config):
     for epoch in range(1, training_config['epochs'] + 1):
         model.train()
         for step, batch in enumerate(train_dl, 1):
-            batch = {k: v.to(device) for k, v in batch.items()}
+            # Remove 'lengths' as the standard model doesn't expect it
+            # Cast labels to float for MSELoss (when num_labels=1)
+            batch = {k: v.to(device) for k, v in batch.items() if k != 'lengths'}
+            if 'labels' in batch:
+                batch['labels'] = batch['labels'].float()
+
+            # Ensure labels are passed for the model's internal loss calculation
             outputs = model(**batch)
-            loss = outputs["loss"]
+            loss = outputs.loss # Get loss directly from the standard output object
+
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
