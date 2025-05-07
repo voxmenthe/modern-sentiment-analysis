@@ -1,17 +1,7 @@
 model:
   name: "answerdotai/ModernBERT-base"
-  loss_function:
-    name: "SentimentFocalLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"
-    # Parameters for the chosen loss function.
-    # For SentimentFocalLoss, common params are:
-    # gamma_focal: 1.0 # (e.g., 2.0 for standard, -2.0 for reversed, 0 for none)
-    # label_smoothing_epsilon: 0.05 # (e.g., 0.0 to 0.1)
-    # For SentimentWeightedLoss, params is empty:
-    params:
-      gamma_focal: 1.0
-      label_smoothing_epsilon: 0.05
   output_dir: "checkpoints"
-  max_length: 880 # 256
+  max_length: 512 # 256
   dropout: 0.1
   # --- Pooling Strategy --- #
   # Options: "cls", "mean", "cls_mean_concat", "weighted_layer", "cls_weighted_concat"
@@ -29,7 +19,7 @@ data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 6
+  epochs: 4
   batch_size: 16
   lr: 1e-5 # 1e-5 # 2.0e-5
   weight_decay_rate: 0.02 # 0.01
@@ -39,7 +29,7 @@ inference:
   # Default path, can be overridden
   model_path: "checkpoints/best_model.pt" 
   # Using the same max_length as training for consistency
-  max_length: 880 # 256
+  max_length: 512 # 256
 
 
 # "answerdotai/ModernBERT-base"

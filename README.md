@@ -6,23 +6,24 @@ This script trains a ModernBERT‑based sentiment‑classification model on the 
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
+    git clone https://github.com/voxmenthe/modern-sentiment-analysis.git
     cd modern-sentiment-analysis
     ```
 
 2.  **Create a virtual environment (recommended):**
     ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    python -m venv my_venv
+    source my_venv/bin/activate
     ```
 
-3.  **Install dependencies:**
+3.  **Set up project and install dependencies:**
     ```bash
-    pip install -r requirements.txt
+    ./project_setup.sh
     ```
 
 4.  **Configure hyperparameters (optional):**
     Modify `src/config.yaml` to adjust model name, training parameters (epochs, batch size, learning rate), max sequence length, or output directory.
+    You can also pass command line arguments to override the yaml file's config values.
 
 ## Usage
 
@@ -34,9 +35,16 @@ Run the training script from the root directory:
 python src/train.py
 ```
 
+Other examples:
+
+```bash
+python src/train.py --model_name "answerdotai/ModernBERT-base" --epochs 3
+python src/train.py --model_name "answerdotai/ModernBERT-large" --epochs 3 --batch_size 16
+```
+
 -   The script will load configuration from `src/config.yaml`.
 -   It downloads the IMDB dataset.
--   Trains the ModernBERT model for sentiment classification.
+-   Trains the ModernBERT+Classifier model for sentiment classification.
 -   Saves the best performing model (based on F1 score on the validation set) to the `output_dir` specified in the config (default: `checkpoints/best_model.pt`).
 
 ### Inference

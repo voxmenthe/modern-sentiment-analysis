@@ -1,11 +1,14 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from models import ModernBertForSentiment
+from transformers import ModernBertConfig
 from typing import Dict, Any
 import yaml
 
+
 class SentimentInference:
     def __init__(self, config_path: str = "config.yaml"):
-        """Loads configuration and initializes model and tokenizer."""
+        """Load configuration and initialize model and tokenizer."""
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
         
@@ -17,9 +20,7 @@ class SentimentInference:
         self.max_length = inference_cfg.get('max_length', model_cfg.get('max_length', 256))
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        from models import ModernBertForSentiment
-        from transformers import ModernBertConfig
-        bert_config = ModernBertConfig.from_pretrained(model_cfg.get('name', 'ai-forever/modernbert-base')) 
+        bert_config = ModernBertConfig.from_pretrained(model_cfg.get('name', 'answerdotai/ModernBERT-base')) 
         self.model = ModernBertForSentiment(bert_config)
         self.model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
         self.model.eval()
