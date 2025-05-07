@@ -11,11 +11,30 @@ def evaluate(model, dataloader, device):
 
     with torch.no_grad():
         for batch in dataloader:
+            # Move batch to device, ensure all model inputs are covered
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             labels = batch['labels'].to(device)
+            lengths = batch.get('lengths') # Get lengths from batch
+            if lengths is None:
+                # Fallback or error if lengths are expected but not found
+                # For now, let's raise an error if using weighted loss that needs it
+                # Or, if your model can run without it for some pooling strategies, handle accordingly
+                # However, the error clearly states it's needed when labels are specified.
+                pass # Or handle error: raise ValueError("'lengths' not found in batch, but required by model")
+            else:
+                lengths = lengths.to(device) # Move to device if found
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            # Pass all necessary parts of the batch to the model
+            model_inputs = {
+                'input_ids': input_ids,
+                'attention_mask': attention_mask,
+                'labels': labels
+            }
+            if lengths is not None:
+                model_inputs['lengths'] = lengths
+            
+            outputs = model(**model_inputs)
             loss = outputs.loss
             logits = outputs.logits
 

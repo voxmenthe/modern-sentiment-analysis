@@ -1,7 +1,7 @@
 model:
   name: "answerdotai/ModernBERT-base"
   loss_function:
-    name: "SentimentFocalLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"
+    name: "SentimentWeightedLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"
     # Parameters for the chosen loss function.
     # For SentimentFocalLoss, common params are:
     # gamma_focal: 1.0 # (e.g., 2.0 for standard, -2.0 for reversed, 0 for none)
