@@ -1,0 +1,2 @@
+The experience was neutral. label=1
+Waste of time and money. label=0

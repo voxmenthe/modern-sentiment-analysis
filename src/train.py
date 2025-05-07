@@ -11,15 +11,15 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from datasets import load_dataset, DatasetDict
-from models import ModernBertForSentiment
+from src.models import ModernBertForSentiment
 from transformers import (
     AutoTokenizer,
     ModernBertConfig,
     ModernBertModel
 )
 from sklearn.metrics import accuracy_score, f1_score
-from data_processing import download_and_prepare_datasets, create_dataloaders
-from evaluation import evaluate
+from src.data_processing import download_and_prepare_datasets, create_dataloaders
+from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
 
@@ -173,13 +173,6 @@ def train(config_param):
                     print(f"WARNING: Old format & epoch not in filename. Defaulting start_epoch: {start_epoch}.")
 
             print(f"Checkpoint processing complete. Effective start epoch: {start_epoch}. Current best F1: {best_f1:.4f}")
-
-            if optimizer_state_to_load:
-                optimizer.load_state_dict(optimizer_state_to_load)
-                print("Optimizer state loaded.")
-            if scheduler_state_to_load:
-                lr_scheduler.load_state_dict(scheduler_state_to_load)
-                print("Scheduler state loaded.")
 
         except Exception as e:
             print(f"Error loading checkpoint: {e}. Proceeding with training from scratch (epoch 1, best_f1 0.0).")

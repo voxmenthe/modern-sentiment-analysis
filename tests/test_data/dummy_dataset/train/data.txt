@@ -1,0 +1,4 @@
+This is a positive review. label=1
+What a terrible movie. label=0
+I loved the acting. label=1
+Not good at all. label=0

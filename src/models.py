@@ -2,10 +2,10 @@ from transformers import ModernBertModel, ModernBertPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 from torch import nn
 import torch
-from train_utils import SentimentWeightedLoss, SentimentFocalLoss
+from src.train_utils import SentimentWeightedLoss, SentimentFocalLoss
 import torch.nn.functional as F
 
-from classifiers import ClassifierHead, ConcatClassifierHead
+from src.classifiers import ClassifierHead, ConcatClassifierHead
 
 
 class ModernBertForSentiment(ModernBertPreTrainedModel):

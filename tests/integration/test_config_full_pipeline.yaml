@@ -1,0 +1,36 @@
+# Minimal config for full pipeline integration test
+model:
+  name: '../tests/test_data/dummy_tokenizer' # Path to local dummy model/tokenizer config
+  max_length: 32 # Keep small for tests
+  dropout: 0.1
+  output_dir: 'test_outputs/full_pipeline_model' # Relative to where test is run or absolute
+  pooling_strategy: 'cls'
+  num_weighted_layers: 1 # Match dummy_config if pooling_strategy needs it
+  loss_function:
+    name: 'SentimentWeightedLoss' # or any other simple loss for testing
+    params: {}
+
+data:
+  # This part needs careful handling in train.py or data_processing.py
+  # to allow loading local text files instead of HF datasets.load_dataset('imdb')
+  # For this test, we will mock the data loading part within the test itself
+  # or assume train.py can be adapted to load from a local_data_dir structure.
+  # Adapting for local datasets is a todo for later.
+  datasets: ['local_dummy_data'] # Placeholder name
+  local_data_dir: '../tests/test_data/dummy_dataset' # Path to local dummy data
+  remove_long_reviews: False # No filtering for tiny dataset
+
+training:
+  batch_size: 2
+  epochs: 1
+  lr: 1e-4
+  weight_decay_rate: 0.01
+  resume_from_checkpoint: null
+  eval_steps: 1 # Evaluate frequently for test
+  device: 'cpu' # Force CPU for integration test consistency
+  gradient_accumulation_steps: 1
+  max_grad_norm: 1.0
+
+logging:
+  level: 'INFO'
+  log_file: 'test_outputs/full_pipeline_train.log'

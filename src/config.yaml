@@ -37,7 +37,7 @@ training:
 
 inference:
   # Default path, can be overridden
-  model_path: "checkpoints/best_model.pt" 
+  model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" 
   # Using the same max_length as training for consistency
   max_length: 880 # 256
 

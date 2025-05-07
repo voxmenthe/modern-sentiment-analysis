@@ -18,13 +18,21 @@ class SentimentWeightedLoss(nn.Module):
         super().__init__()
         # Initialize BCE loss without reduction, since we're applying per-sample weights
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        self.min_len_weight_sqrt = 0.1  # Minimum length weight
 
     def forward(self, logits, targets, lengths):
         base_loss = self.bce(logits.view(-1), targets.float())  # shape [B]
-
+    
         prob = torch.sigmoid(logits.view(-1))
         confidence_weight = (prob - 0.5).abs() * 2  # ∈ [0,1]
+
+        if lengths.numel() == 0:
+            # Handle empty batch: return 0.0 loss or mean of base_loss if it's also empty (becomes nan then)
+            # If base_loss on empty input is empty tensor, mean is nan. So return 0.0 is safer.
+            return torch.tensor(0.0, device=logits.device, requires_grad=logits.requires_grad)
+        
         length_weight = torch.sqrt(lengths.float()) / math.sqrt(lengths.max().item())
+        length_weight = length_weight.clamp(self.min_len_weight_sqrt, 1.0) # Clamp to avoid extreme weights
 
         weights = confidence_weight * length_weight
         weights = weights / (weights.mean() + 1e-8)  # normalize so E[w]=1

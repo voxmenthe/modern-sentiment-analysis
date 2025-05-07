@@ -67,7 +67,3 @@ result_neg = inferer.predict(text_negative)
 print(f'"{text_positive}" -> {result_pos}')
 print(f'"{text_negative}" -> {result_neg}')
 ```
-
-# Usage (minimal):
-#   python train.py --model_name modernbert-base --epochs 3
-# --------------------------------------------------------------
