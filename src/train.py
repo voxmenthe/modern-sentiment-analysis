@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 import yaml
+import json
 
 import torch
 import torch.nn as nn
@@ -216,6 +217,12 @@ def train(config_param):
         except Exception as e:
             print(f"Warning: Could not load scheduler state: {e}. Scheduler reinitialized.")
 
+    history = {
+        "epoch": [],
+        "train_loss": [], "train_accuracy": [], "train_f1": [], "train_roc_auc": [], "train_precision": [], "train_recall": [], "train_mcc": [],
+        "val_loss": [], "val_accuracy": [], "val_f1": [], "val_roc_auc": [], "val_precision": [], "val_recall": [], "val_mcc": []
+    }
+
     # The loop runs from determined start_epoch up to the total_epochs from the active config
     for epoch in range(start_epoch, training_config['epochs'] + 1):
         model.train()
@@ -232,9 +239,30 @@ def train(config_param):
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {loss.item():.4f}")
 
+        # Compute and log training metrics
+        train_metrics = evaluate(model, train_dl, device)
+        print(f"Epoch {epoch} train – Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
+              f"AUC: {train_metrics['roc_auc']:.4f}, Precision: {train_metrics['precision']:.4f}, Recall: {train_metrics['recall']:.4f}, MCC: {train_metrics['mcc']:.4f}")
+        history["epoch"].append(epoch)
+        history["train_loss"].append(train_metrics["loss"])
+        history["train_accuracy"].append(train_metrics["accuracy"])
+        history["train_f1"].append(train_metrics["f1"])
+        history["train_roc_auc"].append(train_metrics["roc_auc"])
+        history["train_precision"].append(train_metrics["precision"])
+        history["train_recall"].append(train_metrics["recall"])
+        history["train_mcc"].append(train_metrics["mcc"])
+
         metrics = evaluate(model, val_dl, device)
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
+        # Record validation metrics
+        history["val_loss"].append(metrics["loss"])
+        history["val_accuracy"].append(metrics["accuracy"])
+        history["val_f1"].append(metrics["f1"])
+        history["val_roc_auc"].append(metrics["roc_auc"])
+        history["val_precision"].append(metrics["precision"])
+        history["val_recall"].append(metrics["recall"])
+        history["val_mcc"].append(metrics["mcc"])
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
             # Construct filename with pooling strategy, epoch, accuracy, and f1
@@ -254,6 +282,12 @@ def train(config_param):
             }
             torch.save(checkpoint_data, ckpt_path)
             print(f"✨ Saved new best model to {ckpt_path}")
+
+    # After training, save metrics history
+    metrics_file = Path(model_config['output_dir']) / "metrics.json"
+    with open(metrics_file, "w") as f:
+        json.dump(history, f, indent=4)
+    print(f"Metrics history saved to {metrics_file}")
 
 
 if __name__ == "__main__":
