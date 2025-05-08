@@ -29,6 +29,8 @@ This script trains a ModernBERT‑based sentiment‑classification model on the 
 
 ### Training
 
+First set your desired configuration in `src/config.yaml` or pass command line arguments to override the yaml file's config values.
+
 Run the training script from the root directory:
 
 ```bash
@@ -47,9 +49,20 @@ python src/train.py --model_name "answerdotai/ModernBERT-large" --epochs 3 --bat
 -   Trains the ModernBERT+Classifier model for sentiment classification.
 -   Saves the best performing model (based on F1 score on the validation set) to the `output_dir` specified in the config (default: `checkpoints/best_model.pt`).
 
+
 ### Inference
 
-You can use the trained model for inference on new text. (Example script/usage to be added if needed).
+You can use the trained model for inference on new text. 
+
+For a simple check, run the sample inference script:
+
+```bash
+python run_sample_inference.py --num_samples 5
+```
+
+This will load the model from the default checkpoint and run inference on a few samples from the IMDB validation set.
+
+For more complex usage, you can use the SentimentInference class directly:
 
 ```python
 # Example usage within a Python script
@@ -66,4 +79,17 @@ result_neg = inferer.predict(text_negative)
 
 print(f'"{text_positive}" -> {result_pos}')
 print(f'"{text_negative}" -> {result_neg}')
+```
+
+
+### Evaluation
+
+You can evaluate the model on the IMDB test set using the evaluation script:
+
+Adjust the `num_samples` parameter to control how many samples to evaluate on or leave it blank for all of them.
+
+It requires that the trained checkpoint be saved locally (e.g. in the `checkpoints` directory) and defined in the `src/config.yaml` file.
+
+```bash
+python run_evaluation.py --config src/config.yaml --num_samples 100
 ```
