@@ -1,0 +1,12 @@
+model:
+  base_model_for_config: "answerdotai/ModernBERT-base"
+  tokenizer_name_or_path: "answerdotai/ModernBERT-base"
+  max_length: 880
+  dropout: 0.1
+  pooling_strategy: "mean"
+  num_weighted_layers: 6
+  num_labels: 1
+
+inference:
+  model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt"
+  max_length: 880

@@ -1,0 +1,13 @@
+model:
+  name_or_path: "voxmenthe/modernbert-imdb-sentiment"
+  tokenizer_name_or_path: "answerdotai/ModernBERT-base"
+  max_length: 880 # 256
+  dropout: 0.1
+  pooling_strategy: "mean" # Current default, change as needed
+  num_weighted_layers: 6 # Match original training config
+
+inference:
+  # Default path, can be overridden
+  model_path: "voxmenthe/modernbert-imdb-sentiment"
+  # Using the same max_length as training for consistency
+  max_length: 880 # 256
