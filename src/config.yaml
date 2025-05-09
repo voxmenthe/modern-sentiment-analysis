@@ -1,37 +1,20 @@
 model:
-  name: "answerdotai/ModernBERT-base"
-  loss_function:
-    name: "SentimentWeightedLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"
-    # Parameters for the chosen loss function.
-    # For SentimentFocalLoss, common params are:
-    # gamma_focal: 1.0 # (e.g., 2.0 for standard, -2.0 for reversed, 0 for none)
-    # label_smoothing_epsilon: 0.05 # (e.g., 0.0 to 0.1)
-    # For SentimentWeightedLoss, params is empty:
-    params:
-      gamma_focal: 1.0
-      label_smoothing_epsilon: 0.05
-  output_dir: "checkpoints"
-  max_length: 880 # 256
-  dropout: 0.1
-  # --- Pooling Strategy --- #
-  # Options: "cls", "mean", "cls_mean_concat", "weighted_layer", "cls_weighted_concat"
-  # "cls" uses just the [CLS] token for classification
-  # "mean" uses mean pooling over final hidden states for classification
-  # "cls_mean_concat" uses both [CLS] and mean pooling over final hidden states for classification
-  # "weighted_layer" uses a weighted combination of the final hidden states from the top N layers for classification
-  # "cls_weighted_concat" uses a weighted combination of the final hidden states from the top N layers and the [CLS] token for classification
-  
-  pooling_strategy: "mean" # Current default, change as needed
-
-  num_weighted_layers: 6 # Number of top BERT layers to use for 'weighted_layer' strategies (e.g., 1 to 12 for BERT-base)
+  name: "microsoft/deberta-v3-small"
+  model_type: "deberta" # Specify deberta
+  # loss_function: ... (This will be ignored by DeBERTa unless you implement a custom wrapper)
+  output_dir: "checkpoints_deberta"
+  max_length: 256 # DeBERTa-v3-small example used 256
+  dropout: 0.1 # This will be applied to deberta_config.hidden_dropout_prob
+  # pooling_strategy: ... (This will be ignored by DeBERTa)
+  # num_weighted_layers: ... (This will be ignored by DeBERTa)
 
 data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 6
-  batch_size: 16
-  lr: 1e-5 # 1e-5 # 2.0e-5
+  epochs: 3 # Example from DeBERTa page
+  batch_size: 8 # Example from DeBERTa page
+  lr: 4.5e-5 # Example from DeBERTa page
   weight_decay_rate: 0.02 # 0.01
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
 

@@ -15,7 +15,9 @@ from src.models import ModernBertForSentiment
 from transformers import (
     AutoTokenizer,
     ModernBertConfig,
-    ModernBertModel
+    ModernBertModel,
+    AutoConfig,
+    AutoModelForSequenceClassification
 )
 from sklearn.metrics import accuracy_score, f1_score
 from src.data_processing import download_and_prepare_datasets, create_dataloaders
@@ -47,6 +49,8 @@ def train(config_param):
     data_config = config['data'] 
     training_config = config['training']
 
+    model_type = model_config.get('model_type', 'modernbert') # Get model_type, default to modernbert
+
     tokenizer = AutoTokenizer.from_pretrained(model_config['name'])
     dsets = download_and_prepare_datasets(tokenizer, max_length=model_config['max_length'])
     train_dl, val_dl = create_dataloaders(dsets, tokenizer, training_config['batch_size'])
@@ -64,30 +68,60 @@ def train(config_param):
     bert_config.loss_function = model_config.get('loss_function', {'name': 'SentimentWeightedLoss', 'params': {}})
 
     # Ensure output_hidden_states is True if using weighted layer pooling
-    if bert_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
-        print(f"INFO: Setting output_hidden_states=True for {bert_config.pooling_strategy} pooling.")
-        bert_config.output_hidden_states = True
+    # This is specific to ModernBertForSentiment's custom pooling
+    if model_type == 'modernbert':
+        if bert_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
+            print(f"INFO: Setting output_hidden_states=True for {bert_config.pooling_strategy} pooling (ModernBERT).")
+            bert_config.output_hidden_states = True
+        else:
+            bert_config.output_hidden_states = False
+    
+    # Model loading based on model_type
+    if model_type == 'deberta':
+        print(f"Loading DeBERTa model: {model_config['name']}")
+        num_labels = 1 # Assuming 1 for sentiment regression-style output as in ModernBERT
+        
+        deberta_config_params = {'num_labels': num_labels}
+        # Apply dropout if specified in config
+        if 'dropout' in model_config:
+            # DeBERTa's AutoConfig might not directly use 'classifier_dropout' in the same way as ModernBertConfig.
+            # Common dropout attributes are 'hidden_dropout_prob', 'attention_probs_dropout_prob'.
+            # We'll set a general dropout, but this might need refinement based on DeBERTa's specific config fields.
+            deberta_config_params['hidden_dropout_prob'] = model_config['dropout'] 
+            # deberta_config_params['classifier_dropout'] = model_config['dropout'] # If applicable for the head
+
+        loaded_config = AutoConfig.from_pretrained(
+            model_config['name'], 
+            **deberta_config_params
+        )
+        
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_config['name'],
+            config=loaded_config
+        )
+        print(f"DeBERTa model {model_config['name']} loaded.")
+
+    elif model_type == 'modernbert':
+        print(f"Loading ModernBERT model: {model_config['name']}")
+        # 1. Load the pre-trained base BERT model
+        print("Loading pre-trained base ModernBertModel...")
+        base_bert_model = ModernBertModel.from_pretrained(
+            model_config['name'],
+            config=bert_config # Pass config if needed for architecture consistency
+        )
+
+        # 2. Instantiate the custom model wrapper from config ONLY
+        print("Instantiating custom ModernBertForSentiment model structure...")
+        model = ModernBertForSentiment(config=bert_config)
+
+        # 3. Manually assign the loaded pre-trained bert model to the custom model's bert attribute
+        print("Assigning pre-trained base model to custom model...")
+        model.bert = base_bert_model
+        print("ModernBERT model loaded and configured.")
     else:
-        # Explicitly set to False if not needed, though default might be False
-        bert_config.output_hidden_states = False 
+        raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
-    # 1. Load the pre-trained base BERT model
-    print("Loading pre-trained base ModernBertModel...")
-    base_bert_model = ModernBertModel.from_pretrained(
-        model_config['name'],
-        config=bert_config # Pass config if needed for architecture consistency
-    )
-
-    # 2. Instantiate the custom model wrapper from config ONLY
-    # This initializes the structure including the classifier head, but doesn't load bert weights
-    print("Instantiating custom model structure...")
-    model = ModernBertForSentiment(config=bert_config)
-
-    # 3. Manually assign the loaded pre-trained bert model to the custom model's bert attribute
-    print("Assigning pre-trained base model to custom model...")
-    model.bert = base_bert_model
-
-    # Now, model.bert has pre-trained weights, and model.classifier is randomly initialized.
+    # Now, model should be correctly initialized (either DeBERTa or ModernBERT)
     model.to(device)
 
     optimizer = AdamW(
@@ -237,9 +271,16 @@ def train(config_param):
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
-            # Construct filename with pooling strategy, epoch, accuracy, and f1
-            pooling_str = model_config.get('pooling_strategy', 'cls')
-            ckpt_filename = f"{pooling_str}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+            
+            # Construct filename with model type, epoch, accuracy, and f1
+            model_name_for_ckpt = model_config['name'].split('/')[-1] # e.g., ModernBERT-base or deberta-v3-small
+            
+            if model_type == 'modernbert':
+                pooling_str = model_config.get('pooling_strategy', 'cls')
+                ckpt_filename = f"{model_name_for_ckpt}_{pooling_str}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+            else: # For deberta or other future models not using pooling_strategy in the same way
+                ckpt_filename = f"{model_name_for_ckpt}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+
             output_dir = Path(model_config['output_dir'])
             output_dir.mkdir(parents=True, exist_ok=True)
             ckpt_path = output_dir / ckpt_filename
