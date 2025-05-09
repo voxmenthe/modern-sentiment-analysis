@@ -7,6 +7,12 @@ This script trains a ModernBERT‑based sentiment‑classification model on the 
 * The use of a custom classification head with skip connections
 * Building on top of the pre-trained ModernBERT model.
 
+## Demo Space
+
+There is a simple web demo space hosted on Hugging Face Spaces at this link that uses the trained model created with this repo:
+
+[Hugging Face Demo Space](https://huggingface.co/spaces/voxmenthe/imdb-sentiment-demo)
+
 ## Key components
 * `src/train.py`: Main training script.
 * `src/config.yaml`: Configuration file.
@@ -15,13 +21,7 @@ This script trains a ModernBERT‑based sentiment‑classification model on the 
 * `src/train_utils.py`: The custom loss functions are defined here.
 * `src/classifiers.py`: The custom classification head is defined here.
 * `src/inference.py`: Inference script.
-
-## Demo Space
-
-There is a simple web demo space hosted on Hugging Face Spaces at this link that uses the trained model created with this repo:
-
-[Hugging Face Demo Space](https://huggingface.co/spaces/voxmenthe/imdb-sentiment-demo)
-
+* `demo-hf-space`: All the code used to create the demo Hugging Face Space.
 
 ## Setup
 
