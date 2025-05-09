@@ -1,20 +1,36 @@
 model:
-  name: "microsoft/deberta-v3-small"
-  model_type: "deberta" # Specify deberta
-  # loss_function: ... (This will be ignored by DeBERTa unless you implement a custom wrapper)
-  output_dir: "checkpoints_deberta"
-  max_length: 256 # DeBERTa-v3-small example used 256
+  name: "answerdotai/ModernBERT-base" # The two supported base models are either "answerdotai/ModernBERT-base" or "microsoft/deberta-v3-small"
+  model_type: "modernbert" # Specify "modernbert" or "deberta"
+  loss_function:
+    name: "SentimentWeightedLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"
+    params:
+      # Extra parameters for SentimentFocalLoss:
+      gamma_focal: 0.1                # Default: 0.1. Modulates focus on hard/easy examples.
+      label_smoothing_epsilon: 0.1   # Default: 0.05. Amount of label smoothing.
+
+  output_dir: "checkpoints"
+  max_length: 880 # Max context length in tokens, any sample longer than this will be truncated
   dropout: 0.1 # This will be applied to deberta_config.hidden_dropout_prob
-  # pooling_strategy: ... (This will be ignored by DeBERTa)
-  # num_weighted_layers: ... (This will be ignored by DeBERTa)
+
+# --- Pooling Strategy Options --- #
+# Options: "cls", "mean", "cls_mean_concat", "weighted_layer", "cls_weighted_concat"
+# "cls" uses just the [CLS] token for classification
+# "mean" uses mean pooling over final hidden states for classification
+# "cls_mean_concat" uses both [CLS] and mean pooling over final hidden states for classification
+# "weighted_layer" uses a weighted combination of the final hidden states from the top N layers for classification
+# "cls_weighted_concat" uses a weighted combination of the final hidden states from the top N layers and the [CLS] token for classification
+pooling_strategy: "mean" # Pooling strategy to use
+
+# --- Weighted Layer Options - only used for the two weighted_layer strategies --- #
+num_weighted_layers: 4 # Number of top BERT layers to use
 
 data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 3 # Example from DeBERTa page
-  batch_size: 8 # Example from DeBERTa page
-  lr: 4.5e-5 # Example from DeBERTa page
+  epochs: 8 
+  batch_size: 8 
+  lr: 1e-5 
   weight_decay_rate: 0.02 # 0.01
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
 
