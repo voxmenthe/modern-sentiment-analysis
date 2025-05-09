@@ -34,6 +34,9 @@ ruff = "*"
 black = "*"
 feedparser = "*"
 pypdf = "*"
+tiktoken = "*"
+protobuf = "*"
+sentencepiece = "*"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "*"

@@ -6,16 +6,22 @@ import re
 from pathlib import Path
 from typing import Dict, List
 import yaml
+import json
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from datasets import load_dataset, DatasetDict
-from src.models import ModernBertForSentiment
+from src.models import ModernBertForSentiment, DebertaForSentiment
 from transformers import (
     AutoTokenizer,
     ModernBertConfig,
-    ModernBertModel
+    ModernBertModel,
+    AutoConfig,
+    AutoModelForSequenceClassification,
+    DebertaV2Tokenizer,
+    DebertaV2Model,
+    DebertaV2Config
 )
 from sklearn.metrics import accuracy_score, f1_score
 from src.data_processing import download_and_prepare_datasets, create_dataloaders
@@ -47,47 +53,89 @@ def train(config_param):
     data_config = config['data'] 
     training_config = config['training']
 
-    tokenizer = AutoTokenizer.from_pretrained(model_config['name'])
+    model_type = model_config.get('model_type', 'modernbert') # Get model_type, default to modernbert
+
+    if model_type == 'deberta':
+        print(f"INFO: Explicitly loading SLOW DebertaV2Tokenizer for {model_config['name']}.")
+        tokenizer = DebertaV2Tokenizer.from_pretrained(model_config['name'])
+    elif model_type == 'modernbert':
+        print(f"INFO: Loading tokenizer for ModernBERT model: {model_config['name']} using AutoTokenizer.")
+        tokenizer = AutoTokenizer.from_pretrained(model_config['name'])
+    else:
+        print(f"WARNING: Unknown model_type '{model_type}'. Falling back to AutoTokenizer with use_fast=False.")
+        tokenizer = AutoTokenizer.from_pretrained(model_config['name'], use_fast=False)
+
     dsets = download_and_prepare_datasets(tokenizer, max_length=model_config['max_length'])
     train_dl, val_dl = create_dataloaders(dsets, tokenizer, training_config['batch_size'])
 
-    bert_config = ModernBertConfig.from_pretrained(model_config['name'])
-    bert_config.classifier_dropout = model_config['dropout']
-    bert_config.num_labels = 1  # Ensure config has num_labels
+    if model_type == 'deberta':
+        print(f"Loading custom DebertaForSentiment model: {model_config['name']}")
+        # 1. Load DeBERTa config and customize it
+        deberta_base_config = DebertaV2Config.from_pretrained(model_config['name'])
+        deberta_base_config.num_labels = 1 # For sentiment regression-style output
+        deberta_base_config.classifier_dropout = model_config.get('dropout', 0.1) # Use model_config dropout
+        
+        # Add pooling strategy and weighted layer config
+        deberta_base_config.pooling_strategy = model_config.get('pooling_strategy', 'cls')
+        deberta_base_config.num_weighted_layers = model_config.get('num_weighted_layers', 4)
+        deberta_base_config.loss_function = model_config.get('loss_function', {'name': 'SentimentWeightedLoss', 'params': {}})
 
-    # Add pooling strategy and weighted layer config to bert_config
-    bert_config.pooling_strategy = model_config.get('pooling_strategy', 'cls') # Default to 'cls' if not specified
-    bert_config.num_weighted_layers = model_config.get('num_weighted_layers', 4) # Default if not specified
+        if deberta_base_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
+            print(f"INFO: Setting output_hidden_states=True for {deberta_base_config.pooling_strategy} pooling (DeBERTa).")
+            deberta_base_config.output_hidden_states = True
+        else:
+            deberta_base_config.output_hidden_states = False
 
-    # Add loss function configuration to bert_config
-    # The model's __init__ expects a dict with 'name' and 'params'
-    bert_config.loss_function = model_config.get('loss_function', {'name': 'SentimentWeightedLoss', 'params': {}})
+        # 2. Load the pre-trained base DeBERTa model with potentially modified config (for output_hidden_states)
+        print("Loading pre-trained base DebertaV2Model...")
+        base_deberta_model = DebertaV2Model.from_pretrained(
+            model_config['name'],
+            config=deberta_base_config 
+        )
 
-    # Ensure output_hidden_states is True if using weighted layer pooling
-    if bert_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
-        print(f"INFO: Setting output_hidden_states=True for {bert_config.pooling_strategy} pooling.")
-        bert_config.output_hidden_states = True
+        # 3. Instantiate the custom DebertaForSentiment model wrapper using the full config
+        print("Instantiating custom DebertaForSentiment model structure...")
+        model = DebertaForSentiment(config=deberta_base_config) # Pass the full config here
+
+        # 4. Manually assign the loaded pre-trained deberta model to the custom model's deberta attribute
+        print("Assigning pre-trained base model to custom DeBERTa model...")
+        model.deberta = base_deberta_model
+        print("Custom DebertaForSentiment model loaded and configured.")
+
+    elif model_type == 'modernbert':
+        bert_config = ModernBertConfig.from_pretrained(model_config['name'])
+        bert_config.classifier_dropout = model_config['dropout']
+        bert_config.num_labels = 1  # Ensure config has num_labels
+
+        bert_config.pooling_strategy = model_config.get('pooling_strategy', 'cls')
+        bert_config.num_weighted_layers = model_config.get('num_weighted_layers', 4)
+        bert_config.loss_function = model_config.get('loss_function', {'name': 'SentimentWeightedLoss', 'params': {}})
+
+        if bert_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
+            print(f"INFO: Setting output_hidden_states=True for {bert_config.pooling_strategy} pooling (ModernBERT).")
+            bert_config.output_hidden_states = True
+        else:
+            bert_config.output_hidden_states = False
+
+        print(f"Loading ModernBERT model: {model_config['name']}")
+        # 1. Load the pre-trained base BERT model
+        print("Loading pre-trained base ModernBertModel...")
+        base_bert_model = ModernBertModel.from_pretrained(
+            model_config['name'],
+            config=bert_config # Pass config if needed for architecture consistency
+        )
+
+        # 2. Instantiate the custom model wrapper from config ONLY
+        print("Instantiating custom ModernBertForSentiment model structure...")
+        model = ModernBertForSentiment(config=bert_config)
+
+        # 3. Manually assign the loaded pre-trained bert model to the custom model's bert attribute
+        print("Assigning pre-trained base model to custom model...")
+        model.bert = base_bert_model
+        print("ModernBERT model loaded and configured.")
     else:
-        # Explicitly set to False if not needed, though default might be False
-        bert_config.output_hidden_states = False 
+        raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
-    # 1. Load the pre-trained base BERT model
-    print("Loading pre-trained base ModernBertModel...")
-    base_bert_model = ModernBertModel.from_pretrained(
-        model_config['name'],
-        config=bert_config # Pass config if needed for architecture consistency
-    )
-
-    # 2. Instantiate the custom model wrapper from config ONLY
-    # This initializes the structure including the classifier head, but doesn't load bert weights
-    print("Instantiating custom model structure...")
-    model = ModernBertForSentiment(config=bert_config)
-
-    # 3. Manually assign the loaded pre-trained bert model to the custom model's bert attribute
-    print("Assigning pre-trained base model to custom model...")
-    model.bert = base_bert_model
-
-    # Now, model.bert has pre-trained weights, and model.classifier is randomly initialized.
     model.to(device)
 
     optimizer = AdamW(
@@ -216,30 +264,67 @@ def train(config_param):
         except Exception as e:
             print(f"Warning: Could not load scheduler state: {e}. Scheduler reinitialized.")
 
+    history = {
+        "epoch": [],
+        "train_loss": [], "train_accuracy": [], "train_f1": [], "train_roc_auc": [], "train_precision": [], "train_recall": [], "train_mcc": [],
+        "val_loss": [], "val_accuracy": [], "val_f1": [], "val_roc_auc": [], "val_precision": [], "val_recall": [], "val_mcc": []
+    }
+
     # The loop runs from determined start_epoch up to the total_epochs from the active config
     for epoch in range(start_epoch, training_config['epochs'] + 1):
         model.train()
+        total_loss = 0.0
         for step, batch in enumerate(train_dl, 1):
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            outputs = model(**batch)
-            loss = outputs.loss # Get loss directly from the output object
+            current_batch_for_model = batch
 
+            outputs = model(**current_batch_for_model)
+            loss = outputs.loss
+            total_loss += loss.item()
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
             if step % 100 == 0:
-                print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {loss.item():.4f}")
+                print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
+
+        # Compute and log training metrics
+        train_metrics = evaluate(model, train_dl, device)
+        print(f"Epoch {epoch} train – Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
+              f"AUC: {train_metrics['roc_auc']:.4f}, Precision: {train_metrics['precision']:.4f}, Recall: {train_metrics['recall']:.4f}, MCC: {train_metrics['mcc']:.4f}")
+        history["epoch"].append(epoch)
+        history["train_loss"].append(train_metrics["loss"])
+        history["train_accuracy"].append(train_metrics["accuracy"])
+        history["train_f1"].append(train_metrics["f1"])
+        history["train_roc_auc"].append(train_metrics["roc_auc"])
+        history["train_precision"].append(train_metrics["precision"])
+        history["train_recall"].append(train_metrics["recall"])
+        history["train_mcc"].append(train_metrics["mcc"])
 
         metrics = evaluate(model, val_dl, device)
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
+        # Record validation metrics
+        history["val_loss"].append(metrics["loss"])
+        history["val_accuracy"].append(metrics["accuracy"])
+        history["val_f1"].append(metrics["f1"])
+        history["val_roc_auc"].append(metrics["roc_auc"])
+        history["val_precision"].append(metrics["precision"])
+        history["val_recall"].append(metrics["recall"])
+        history["val_mcc"].append(metrics["mcc"])
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
-            # Construct filename with pooling strategy, epoch, accuracy, and f1
-            pooling_str = model_config.get('pooling_strategy', 'cls')
-            ckpt_filename = f"{pooling_str}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+            
+            # Construct filename with model type, epoch, accuracy, and f1
+            model_name_for_ckpt = model_config['name'].split('/')[-1] # e.g., ModernBERT-base or deberta-v3-small
+            
+            if model_type == 'modernbert':
+                pooling_str = model_config.get('pooling_strategy', 'cls')
+                ckpt_filename = f"{model_name_for_ckpt}_{pooling_str}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+            else: # For deberta or other future models not using pooling_strategy in the same way
+                ckpt_filename = f"{model_name_for_ckpt}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+
             output_dir = Path(model_config['output_dir'])
             output_dir.mkdir(parents=True, exist_ok=True)
             ckpt_path = output_dir / ckpt_filename
@@ -254,6 +339,12 @@ def train(config_param):
             }
             torch.save(checkpoint_data, ckpt_path)
             print(f"✨ Saved new best model to {ckpt_path}")
+
+    # After training, save metrics history
+    metrics_file = Path(model_config['output_dir']) / "metrics.json"
+    with open(metrics_file, "w") as f:
+        json.dump(history, f, indent=4)
+    print(f"Metrics history saved to {metrics_file}")
 
 
 if __name__ == "__main__":
