@@ -43,7 +43,7 @@ class SentimentWeightedLoss(nn.Module):
 
 class SentimentFocalLoss(nn.Module):
     """
-    This loss function incorporates:
+    This probably overcomplicated loss function incorporates:
     1. Base BCEWithLogitsLoss.
     2. Label Smoothing.
     3. Focal Loss modulation to focus more on hard examples (can be reversed to focus on easy examples).

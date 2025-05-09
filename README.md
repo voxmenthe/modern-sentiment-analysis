@@ -6,7 +6,11 @@ This script trains a ModernBERT‑based sentiment‑classification model on the 
 * Custom loss functions (described in `LOSS_FUNCTION_THOUGHTS.md`)
 * The use of a custom classification head with skip connections
 * Building on top of the pre-trained ModernBERT model.
-* Training on the IMDB dataset with standard train/test split using the defaults in `src/config.yaml` reaches F1 and Accuracy of 0.9575 after 5 epochs. This took approx. 24 hours on a Mac Studio M2 Ultra.
+* Training on the IMDB dataset with standard train/test split using the defaults in `src/config.yaml` reaches F1 and Accuracy of 0.9575 after 5 epochs. This is near SOTA for this dataset and took approx. 24 hours on a Mac Studio M2 Ultra. The trained model checkpoint can be downloaded from the Hugging Face Space as follows:
+
+```bash
+wget https://huggingface.co/voxmenthe/modernbert-imdb-sentiment/resolve/main/mean_epoch5_0.9575acc_0.9575f1.pt
+```
 
 ## Demo Space
 
