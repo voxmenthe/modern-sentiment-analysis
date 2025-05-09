@@ -67,9 +67,8 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
         loss_params = loss_config.get('params', {})
 
         if loss_name == "SentimentWeightedLoss":
-            self.loss_fct = SentimentWeightedLoss(**loss_params) # Pass params from config
+            self.loss_fct = SentimentWeightedLoss() # SentimentWeightedLoss takes no arguments
         elif loss_name == "SentimentFocalLoss":
-            # Ensure only relevant params are passed, or that loss_params is structured correctly for SentimentFocalLoss
             # For SentimentFocalLoss, expected params are 'gamma_focal' and 'label_smoothing_epsilon'
             self.loss_fct = SentimentFocalLoss(**loss_params)
         else:

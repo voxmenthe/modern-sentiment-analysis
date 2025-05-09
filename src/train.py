@@ -136,7 +136,6 @@ def train(config_param):
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
-    # Now, model should be correctly initialized (either DeBERTa or ModernBERT)
     model.to(device)
 
     optimizer = AdamW(
@@ -278,7 +277,6 @@ def train(config_param):
         for step, batch in enumerate(train_dl, 1):
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            # REVERTED: Now both custom models expect 'lengths' if labels are provided
             current_batch_for_model = batch
 
             outputs = model(**current_batch_for_model)
