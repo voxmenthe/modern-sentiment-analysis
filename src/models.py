@@ -226,7 +226,7 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
         loss_params = loss_config.get('params', {})
 
         if loss_name == "SentimentWeightedLoss":
-            self.loss_fct = SentimentWeightedLoss(**loss_params) # Pass params from config
+            self.loss_fct = SentimentWeightedLoss() # args are not used
         elif loss_name == "SentimentFocalLoss":
             self.loss_fct = SentimentFocalLoss(**loss_params)
         else:

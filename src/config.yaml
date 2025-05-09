@@ -1,5 +1,5 @@
 model:
-  name: "answerdotai/ModernBERT-base" # The two supported base models are either "answerdotai/ModernBERT-base" or "microsoft/deberta-v3-small"
+  name: "answerdotai/ModernBERT-base" # "microsoft/deberta-v3-small" # The two supported base models are either "answerdotai/ModernBERT-base" or "microsoft/deberta-v3-small"
   model_type: "modernbert" # Specify "modernbert" or "deberta"
   loss_function:
     name: "SentimentWeightedLoss" # Options: "SentimentWeightedLoss", "SentimentFocalLoss"

@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from sklearn.metrics import confusion_matrix
-from transformers import AutoTokenizer, ModernBertConfig, ModernBertModel
+from transformers import AutoTokenizer, ModernBertConfig, ModernBertModel, DebertaV2Config, DebertaV2Model
 from src.data_processing import download_and_prepare_datasets, create_dataloaders
-from src.models import ModernBertForSentiment
+from src.models import ModernBertForSentiment, DebertaForSentiment
 
 def load_config(config_path: str = "src/config.yaml") -> dict:
     """Load YAML config file."""
@@ -57,10 +57,14 @@ def plot_metrics(metrics_path: str, output_dir: Path = Path("plots")):
 
 def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Path = Path("plots")):
     """Compute and plot confusion matrix using the model checkpoint and validation dataset."""
+    print(f"DEBUG: plot_confusion_matrix called with config_path: {config_path}") # Diagnostic print
     config = load_config(config_path)
     model_cfg = config['model']
+    print(f"DEBUG: Loaded model_cfg: {model_cfg}") # Diagnostic print
     training_cfg = config['training']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_type = model_cfg.get('model_type', 'modernbert').lower()
+    print(f"DEBUG: Determined model_type: '{model_type}'") # Diagnostic print
 
     # Tokenizer and data
     tokenizer = AutoTokenizer.from_pretrained(model_cfg['name'])
@@ -68,29 +72,64 @@ def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Pa
     _, val_dl = create_dataloaders(datasets, tokenizer, training_cfg.get('batch_size', 16))
 
     # Model setup
-    bert_cfg = ModernBertConfig.from_pretrained(model_cfg['name'])
-    bert_cfg.classifier_dropout = model_cfg.get('dropout', 0.1)
-    bert_cfg.num_labels = 1
-    bert_cfg.pooling_strategy = model_cfg.get('pooling_strategy', 'cls')
-    bert_cfg.num_weighted_layers = model_cfg.get('num_weighted_layers', 4)
-    bert_cfg.loss_function = model_cfg.get('loss_function', {})
-    if bert_cfg.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
-        bert_cfg.output_hidden_states = True
-    else:
-        bert_cfg.output_hidden_states = False
+    if model_type == 'modernbert':
+        m_config = ModernBertConfig.from_pretrained(model_cfg['name'])
+        m_config.classifier_dropout = model_cfg.get('dropout', 0.1)
+        m_config.num_labels = 1
+        m_config.pooling_strategy = model_cfg.get('pooling_strategy', 'cls')
+        m_config.num_weighted_layers = model_cfg.get('num_weighted_layers', 4)
+        m_config.loss_function = model_cfg.get('loss_function', {})
+        if m_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
+            m_config.output_hidden_states = True
+        else:
+            m_config.output_hidden_states = False
+        
+        print("DEBUG: Attempting to initialize ModernBertForSentiment...") # Diagnostic print
+        model = ModernBertForSentiment.from_pretrained(model_cfg['name'], config=m_config)
 
-    base_model = ModernBertModel.from_pretrained(model_cfg['name'], config=bert_cfg)
-    model = ModernBertForSentiment(config=bert_cfg)
-    model.bert = base_model
+    elif model_type == 'deberta':
+        d_config = DebertaV2Config.from_pretrained(model_cfg['name'])
+        d_config.classifier_dropout = model_cfg.get('dropout', 0.1)
+        d_config.num_labels = 1
+        d_config.pooling_strategy = model_cfg.get('pooling_strategy', 'cls')
+        d_config.num_weighted_layers = model_cfg.get('num_weighted_layers', 4)
+        d_config.loss_function = model_cfg.get('loss_function', {})
+        if d_config.pooling_strategy in ['weighted_layer', 'cls_weighted_concat']:
+            d_config.output_hidden_states = True
+        else:
+            d_config.output_hidden_states = False
+
+        print("DEBUG: Attempting to initialize DebertaForSentiment...") # Diagnostic print
+        model = DebertaForSentiment.from_pretrained(model_cfg['name'], config=d_config)
+
+    else:
+        print(f"ERROR: Unsupported model_type '{model_type}' in config '{config_path}'. Supported: 'modernbert', 'deberta'.")
+        return
 
     # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    state_dict = checkpoint.get('model_state_dict', checkpoint)
-    model.load_state_dict(state_dict)
+    if 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    else:
+        state_dict = checkpoint 
+    
+    print(f"DEBUG: Model object type before load_state_dict: {type(model)}") # Diagnostic print
+    # Ensure the model is on the correct device before loading state_dict and evaluation
     model.to(device)
-    model.eval()
+    
+    try:
+        model.load_state_dict(state_dict)
+    except RuntimeError as e:
+        print(f"Failed to load state_dict into the model. This often occurs if the model architecture specified by:")
+        print(f"  - Config File: '{config_path}'")
+        print(f"    Model Type in Config: '{model_cfg.get('model_type', 'NOT_SPECIFIED')}'")
+        print(f"    Actual Model Type Instantiated: '{type(model).__name__}'")
+        print(f"  - Checkpoint File: '{checkpoint_path}'")
+        print(f"Ensure the 'model_type' in your config matches the architecture of the checkpoint.")
+        print(f"Original error: {e}")
+        return # Stop further execution if state_dict loading fails
 
-    # Collect predictions
+    model.eval()
     all_preds, all_labels = [], []
     with torch.no_grad():
         for batch in val_dl:
