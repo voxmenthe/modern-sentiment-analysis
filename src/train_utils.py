@@ -31,7 +31,8 @@ class SentimentWeightedLoss(nn.Module):
             # If base_loss on empty input is empty tensor, mean is nan. So return 0.0 is safer.
             return torch.tensor(0.0, device=logits.device, requires_grad=logits.requires_grad)
         
-        length_weight = torch.sqrt(lengths.float()) / math.sqrt(lengths.max().item())
+        max_len_sqrt = torch.sqrt(lengths.max().float()) 
+        length_weight = torch.sqrt(lengths.float()) / (max_len_sqrt + 1e-9)
         length_weight = length_weight.clamp(self.min_len_weight_sqrt, 1.0) # Clamp to avoid extreme weights
 
         weights = confidence_weight * length_weight

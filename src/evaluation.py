@@ -2,14 +2,14 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 
 
-def evaluate(model, dataloader, device):
+def evaluate(model, dataloader, device, compute_loss: bool = True):
     model.eval()
     all_preds = []
     all_labels = []
     all_probs_for_auc = [] 
     total_loss = 0
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in dataloader:
             # Move batch to device, ensure all model inputs are covered
             input_ids = batch['input_ids'].to(device)
@@ -29,17 +29,33 @@ def evaluate(model, dataloader, device):
             model_inputs = {
                 'input_ids': input_ids,
                 'attention_mask': attention_mask,
-                'labels': labels
             }
+            if compute_loss: # Only add labels if we need to compute loss
+                model_inputs['labels'] = labels
+            
             if lengths is not None:
                 model_inputs['lengths'] = lengths
             
-            outputs = model(**model_inputs)
-            loss = outputs.loss
+            # Apply torch.autocast for MPS and CUDA
+            if device.type == 'mps':
+                with torch.autocast(device_type="mps", dtype=torch.float16):
+                    outputs = model(**model_inputs)
+            elif device.type == 'cuda':
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    outputs = model(**model_inputs)
+            else: # CPU
+                outputs = model(**model_inputs)
+
+            if compute_loss:
+                if outputs.loss is not None:
+                    total_loss += outputs.loss.item()
+                else:
+                    # This case should ideally not happen if labels were passed and model is in training mode or loss is expected
+                    # For eval, if compute_loss is True, we expect loss. If model doesn't return it, it's an issue.
+                    print("Warning: compute_loss was True, but model did not return loss.")
+            
             logits = outputs.logits
 
-            total_loss += loss.item()
-            
             if logits.shape[1] > 1: 
                 preds = torch.argmax(logits, dim=1)
             else: 
@@ -69,7 +85,7 @@ def evaluate(model, dataloader, device):
         roc_auc = 0.0
 
     return {
-        'loss': avg_loss,
+        'loss': avg_loss if compute_loss and len(dataloader) > 0 else None, # Return None if loss was not computed
         'accuracy': accuracy,
         'f1': f1,
         'roc_auc': roc_auc,

@@ -53,10 +53,13 @@ class SentimentInference:
 
         print("Instantiating ModernBertForSentiment model structure...")
         self.model = ModernBertForSentiment(bert_config)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+        print(f"Inference will run on device: {self.device}")
+        self.model.to(self.device)
         
         print(f"Loading model weights from local checkpoint: {model_weights_path}")
         # Load the entire checkpoint dictionary first
-        checkpoint = torch.load(model_weights_path, map_location=torch.device('cpu'))
+        checkpoint = torch.load(model_weights_path, map_location=self.device) # map_location to self.device
         
         # Extract the model_state_dict from the checkpoint
         # This handles the case where the checkpoint saves more than just the model weights (e.g., optimizer state, epoch)
@@ -68,12 +71,39 @@ class SentimentInference:
             
         self.model.load_state_dict(model_state_to_load)
         self.model.eval()
+
+        # Apply torch.compile() after model is loaded and in eval mode
+        # Skip torch.compile for MPS for now to avoid shader compilation issues.
+        # Attempt torch.compile for CUDA.
+        if self.device.type == 'cuda' and hasattr(torch, 'compile'):
+            print(f"Attempting to compile the inference model with torch.compile() for CUDA...")
+            try:
+                self.model = torch.compile(self.model, backend='inductor') # Default for CUDA
+                print(f"Inference model compiled successfully for CUDA with backend 'inductor'.")
+            except Exception as e:
+                print(f"Inference model compilation failed for CUDA with backend 'inductor': {e}. Proceeding without compilation.")
+        elif self.device.type == 'mps' and hasattr(torch, 'compile'):
+            print("INFO: Skipping torch.compile() for MPS device in inference to avoid potential shader compilation issues.")
+        elif not hasattr(torch, 'compile'):
+            print("torch.compile not available in this PyTorch version.")
+
         print("Model loaded successfully.")
         
     def predict(self, text: str) -> Dict[str, Any]:
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length)
-        with torch.no_grad():
-            outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+        inputs = {k: v.to(self.device) for k, v in inputs.items()} # Move inputs to the model's device
+
+        # Use torch.inference_mode() and torch.autocast for inference
+        with torch.inference_mode():
+            if self.device.type == 'mps':
+                with torch.autocast(device_type="mps", dtype=torch.float16):
+                    outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+            elif self.device.type == 'cuda':
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+            else: # CPU
+                outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+            
         logits = outputs["logits"]
         prob = torch.sigmoid(logits).item()
         return {"sentiment": "positive" if prob > 0.5 else "negative", "confidence": prob}

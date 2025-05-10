@@ -30,6 +30,10 @@ from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
 from src.utils import generate_artifact_name
+try:
+    from torch.cuda.amp import GradScaler
+except ImportError:
+    GradScaler = None # type: ignore
 
 
 def load_config(config_path="src/config.yaml"):
@@ -140,17 +144,43 @@ def train(config_param):
 
     model.to(device)
 
-    optimizer = AdamW(
-        model.parameters(), 
-        lr=float(training_config['lr']), 
-        weight_decay=float(training_config['weight_decay_rate'])
-    )
-    lr_scheduler = LinearLR(
-        optimizer,
-        start_factor=1.0,
-        end_factor=0.0,
-        total_iters=training_config['epochs'] * len(train_dl),
-    )
+    # Apply torch.compile()
+    # Skip torch.compile for MPS for now to avoid shader compilation issues.
+    # Attempt torch.compile for CUDA.
+    if torch.cuda.is_available() and hasattr(torch, 'compile'):
+        print("Attempting to compile the model with torch.compile() for CUDA (mode: default)...")
+        try:
+            model = torch.compile(model, mode="default") 
+            print("Model compiled successfully for CUDA.")
+        except Exception as e_cuda:
+            print(f"CUDA model compilation failed: {e_cuda}. Proceeding without compilation.")
+    elif torch.backends.mps.is_available() and hasattr(torch, 'compile'):
+        print("INFO: Skipping torch.compile() for MPS device to avoid potential shader compilation issues.")
+        print("         Other MPS optimizations like autocast will still be used.")
+    elif not hasattr(torch, 'compile'):
+        print("torch.compile not available in this PyTorch version.")
+    # Removed the general 'else' for "Neither CUDA nor MPS available for torch.compile()"
+    # as the MPS case is now explicitly handled by skipping.
+
+    # Gradient Checkpointing (optional, from config)
+    if training_config.get("gradient_checkpointing", False): # Default to False if not specified
+        if hasattr(model, 'gradient_checkpointing_enable'):
+            model.gradient_checkpointing_enable()
+            print("Gradient checkpointing enabled.")
+        else:
+            print("Warning: Model does not support gradient_checkpointing_enable().")
+
+    # Optimizer and LR Scheduler will be initialized *after* potential checkpoint loading
+    # to use the most up-to-date config (e.g., LR from checkpoint).
+    optimizer = None
+    lr_scheduler = None
+    # scaler for AMP will also be initialized after device selection and config finalization
+    scaler = None
+    if device.type == 'cuda' and GradScaler is not None:
+        scaler = GradScaler()
+        print("CUDA GradScaler initialized.")
+    elif device.type == 'cuda' and GradScaler is None:
+        print("Warning: torch.cuda.amp.GradScaler not found, CUDA AMP will not use GradScaler.")
 
     best_f1 = 0.0
     start_epoch = 1
@@ -238,13 +268,16 @@ def train(config_param):
     data_config = config['data'] 
     training_config = config['training']
     
-    # From here, use model_config, data_config, training_config
-
+    # Initialize optimizer and scheduler here, using the final configuration
+    # (potentially updated from checkpoint)
+    print(f"Initializing optimizer with LR: {float(training_config['lr'])} and Weight Decay: {float(training_config['weight_decay_rate'])}")
     optimizer = AdamW(
         model.parameters(), 
         lr=float(training_config['lr']), 
-        weight_decay=float(training_config['weight_decay_rate'])
+        weight_decay=float(training_config['weight_decay_rate']),
+        fused=True if device.type == 'cuda' else False # Use fused AdamW on CUDA if available
     )
+    print(f"Initializing LinearLR scheduler with total_iters: {training_config['epochs'] * len(train_dl)}")
     lr_scheduler = LinearLR(
         optimizer,
         start_factor=1.0,
@@ -280,14 +313,31 @@ def train(config_param):
             batch = {k: v.to(device) for k, v in batch.items()}
 
             current_batch_for_model = batch
+            optimizer.zero_grad(set_to_none=True) # Use set_to_none=True
 
-            outputs = model(**current_batch_for_model)
-            loss = outputs.loss
-            total_loss += loss.item()
-            loss.backward()
-            optimizer.step()
+            # Automatic Mixed Precision (AMP)
+            if device.type == 'mps':
+                with torch.autocast(device_type="mps", dtype=torch.float16):
+                    outputs = model(**current_batch_for_model)
+                    loss = outputs.loss
+                # For MPS, backward and step are done directly on the loss
+                loss.backward()
+                optimizer.step()
+            elif device.type == 'cuda' and scaler is not None:
+                with torch.autocast(device_type="cuda", dtype=torch.float16): # dtype can be None for CUDA to auto-select
+                    outputs = model(**current_batch_for_model)
+                    loss = outputs.loss
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else: # CPU or CUDA without GradScaler
+                outputs = model(**current_batch_for_model)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+            
             lr_scheduler.step()
-            optimizer.zero_grad()
+            # optimizer.zero_grad() # Moved and changed to set_to_none=True above
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
@@ -385,6 +435,7 @@ if __name__ == "__main__":
     p.add_argument("--max_length", type=int, default=None)
     p.add_argument("--output_dir", default=None, type=str)
     p.add_argument("--resume_from_checkpoint", default=None, type=str, help="Path to checkpoint file to resume training from.")
+    p.add_argument("--gradient_checkpointing", type=bool, default=None, help="Enable gradient checkpointing.")
     args = p.parse_args()
 
     # Update config with passed args
@@ -396,5 +447,7 @@ if __name__ == "__main__":
     config['model']['max_length'] = args.max_length or config['model']['max_length']
     config['model']['output_dir'] = args.output_dir or config['model']['output_dir']
     config['training']['resume_from_checkpoint'] = args.resume_from_checkpoint or config['training'].get('resume_from_checkpoint')
+    if args.gradient_checkpointing is not None:
+        config['training']['gradient_checkpointing'] = args.gradient_checkpointing
     
     train(config)
