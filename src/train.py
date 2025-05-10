@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List
 import yaml
 import json
+import datetime
 
 import torch
 import torch.nn as nn
@@ -28,6 +29,7 @@ from src.data_processing import download_and_prepare_datasets, create_dataloader
 from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
+from src.utils import generate_artifact_name
 
 
 def load_config(config_path="src/config.yaml"):
@@ -316,35 +318,56 @@ def train(config_param):
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
             
-            # Construct filename with model type, epoch, accuracy, and f1
-            model_name_for_ckpt = model_config['name'].split('/')[-1] # e.g., ModernBERT-base or deberta-v3-small
-            
-            if model_type == 'modernbert':
-                pooling_str = model_config.get('pooling_strategy', 'cls')
-                ckpt_filename = f"{model_name_for_ckpt}_{pooling_str}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
-            else: # For deberta or other future models not using pooling_strategy in the same way
-                ckpt_filename = f"{model_name_for_ckpt}_epoch{epoch}_{metrics['accuracy']:.4f}acc_{metrics['f1']:.4f}f1.pt"
+            # Generate checkpoint path using the new utility function
+            # A timestamp for this specific save operation
+            current_timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
+            ckpt_path = generate_artifact_name(
+                base_output_dir=model_config['output_dir'],
+                model_config_name=model_config['name'],
+                loss_function_name=config['model']['loss_function']['name'],
+                epoch=epoch,
+                artifact_type="checkpoint",
+                f1_score=best_f1,
+                timestamp_str=current_timestamp,
+                extension="pt"
+            )
+            
             output_dir = Path(model_config['output_dir'])
             output_dir.mkdir(parents=True, exist_ok=True)
-            ckpt_path = output_dir / ckpt_filename
-            
             checkpoint_data = {
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': lr_scheduler.state_dict(),
                 'best_f1': best_f1,
-                'config': config # Save the active config (could be from checkpoint or current run)
+                'config': config
             }
             torch.save(checkpoint_data, ckpt_path)
             print(f"✨ Saved new best model to {ckpt_path}")
 
     # After training, save metrics history
-    metrics_file = Path(model_config['output_dir']) / "metrics.json"
-    with open(metrics_file, "w") as f:
+    # Generate metrics filename using the new utility function
+    # Use the final epoch from training_config for the metrics file, and a new timestamp
+    final_epoch_for_metrics = training_config['epochs']
+    metrics_timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+    metrics_file_path = generate_artifact_name(
+        base_output_dir=model_config['output_dir'],
+        model_config_name=model_config['name'],
+        loss_function_name=config['model']['loss_function']['name'],
+        epoch=final_epoch_for_metrics,
+        artifact_type="metrics",
+        timestamp_str=metrics_timestamp,
+        extension="json"
+    )
+    
+    # Ensure output directory for metrics exists (though generate_artifact_name places it in base_output_dir)
+    Path(model_config['output_dir']).mkdir(parents=True, exist_ok=True)
+
+    with open(metrics_file_path, "w") as f:
         json.dump(history, f, indent=4)
-    print(f"Metrics history saved to {metrics_file}")
+    print(f"Metrics history saved to {metrics_file_path}")
 
 
 if __name__ == "__main__":

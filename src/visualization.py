@@ -5,55 +5,74 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from sklearn.metrics import confusion_matrix
-from transformers import AutoTokenizer, ModernBertConfig, ModernBertModel, DebertaV2Config, DebertaV2Model
-from src.data_processing import download_and_prepare_datasets, create_dataloaders
-from src.models import ModernBertForSentiment, DebertaForSentiment
+from transformers import AutoTokenizer, ModernBertConfig, DebertaV2Config
+from src.data import download_and_prepare_datasets, create_dataloaders
+from src.modeling import ModernBertForSentiment, DebertaForSentiment
+from src.utils import generate_artifact_name, parse_artifact_filename
+import datetime
+import re
 
 def load_config(config_path: str = "src/config.yaml") -> dict:
     """Load YAML config file."""
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def plot_metrics(metrics_path: str, output_dir: Path = Path("plots")):
+def plot_metrics(config: dict, metrics_path: str, output_dir: Path = Path("plots")):
     """Plot training and validation metrics from JSON history."""
-    metrics_path = Path(metrics_path)
-    with open(metrics_path, 'r') as f:
+    metrics_file_path = Path(metrics_path)
+    with open(metrics_file_path, 'r') as f:
         history = json.load(f)
-    epochs = history.get("epoch", [])
+    epochs_data = history.get("epoch", [])
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Loss
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history.get("train_loss", []), label='Train Loss')
-    plt.plot(epochs, history.get("val_loss", []), label='Val Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Loss over Epochs')
-    plt.legend()
-    plt.savefig(output_dir / 'loss.png')
-    plt.close()
+    # Parse the metrics filename to get parts for new plot names
+    # We need model_name, loss_function_name from config, and timestamp, epoch from metrics_filename
+    parsed_metrics_name = parse_artifact_filename(metrics_file_path.name)
+    if not parsed_metrics_name:
+        print(f"WARNING: Could not parse metrics filename '{metrics_file_path.name}' for plot naming. Using generic plot names.")
+        # Fallback to old behavior or simplified naming if parsing fails
+        # For now, we'll let it try to save with potentially missing parts or use defaults in generate_artifact_name
+        # but ideally, this should be robust.
+        # Fallback values (less ideal as they might not match other artifacts)
+        timestamp_for_plot = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        # Use last epoch from history if parsing fails, or a default if history is also empty
+        epoch_for_plot = epochs_data[-1] if epochs_data else config.get('training', {}).get('epochs', 0) 
+    else:
+        timestamp_for_plot = parsed_metrics_name['timestamp']
+        epoch_for_plot = parsed_metrics_name['epoch'] # Epoch from filename is likely last training epoch
 
-    # Accuracy
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history.get("train_accuracy", []), label='Train Acc')
-    plt.plot(epochs, history.get("val_accuracy", []), label='Val Acc')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.title('Accuracy over Epochs')
-    plt.legend()
-    plt.savefig(output_dir / 'accuracy.png')
-    plt.close()
+    model_config_name = config['model']['name']
+    loss_function_name_from_config = config['model']['loss_function']['name']
 
-    # F1 Score
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history.get("train_f1", []), label='Train F1')
-    plt.plot(epochs, history.get("val_f1", []), label='Val F1')
-    plt.xlabel('Epoch')
-    plt.ylabel('F1 Score')
-    plt.title('F1 Score over Epochs')
-    plt.legend()
-    plt.savefig(output_dir / 'f1_score.png')
-    plt.close()
+    plot_types = {
+        "loss": {"train_key": "train_loss", "val_key": "val_loss", "label": "Loss", "title_suffix": "over Epochs"},
+        "accuracy": {"train_key": "train_accuracy", "val_key": "val_accuracy", "label": "Accuracy", "title_suffix": "over Epochs"},
+        "f1_score": {"train_key": "train_f1", "val_key": "val_f1", "label": "F1 Score", "title_suffix": "over Epochs"}
+    }
+
+    for plot_key, plot_config in plot_types.items():
+        plt.figure(figsize=(10, 6))
+        if plot_config["train_key"] in history:
+            plt.plot(epochs_data, history.get(plot_config["train_key"]), label=f'Train {plot_config["label"]}')
+        if plot_config["val_key"] in history:
+            plt.plot(epochs_data, history.get(plot_config["val_key"]), label=f'Val {plot_config["label"]}')
+        plt.xlabel('Epoch')
+        plt.ylabel(plot_config["label"])
+        plt.title(f'{plot_config["label"]} {plot_config["title_suffix"]}')
+        plt.legend()
+        
+        plot_filename_path = generate_artifact_name(
+            base_output_dir=output_dir,
+            model_config_name=model_config_name, # generate_artifact_name will take care of .split('/')[-1]
+            loss_function_name=loss_function_name_from_config,
+            epoch=epoch_for_plot, # Use epoch from parsed metrics filename
+            artifact_type=f"plot_{plot_key}_curve", # e.g., plot_loss_curve
+            timestamp_str=timestamp_for_plot, # Use timestamp from parsed metrics filename
+            extension="png"
+        )
+        plt.savefig(plot_filename_path)
+        print(f"Saved plot to {plot_filename_path}")
+        plt.close()
 
 def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Path = Path("plots")):
     """Compute and plot confusion matrix using the model checkpoint and validation dataset."""
@@ -135,6 +154,46 @@ def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Pa
             all_preds.extend(preds.tolist())
             all_labels.extend(batch['labels'].cpu().numpy().tolist())
 
+    # For naming the plot:
+    # Parse checkpoint filename for its components
+    parsed_checkpoint_name = parse_artifact_filename(Path(checkpoint_path).name)
+    
+    current_config = load_config(config_path) # Load config for model and loss name
+    model_cfg_name_for_plot = current_config['model']['name']
+    loss_func_name_for_plot = current_config['model']['loss_function']['name']
+    
+    timestamp_for_cm = datetime.datetime.now().strftime("%Y%m%d%H%M%S") # Default timestamp
+    epoch_for_cm = 0 # Default epoch
+    f1_for_cm = None # Default F1
+
+    if parsed_checkpoint_name:
+        timestamp_for_cm = parsed_checkpoint_name['timestamp']
+        epoch_for_cm = parsed_checkpoint_name['epoch']
+        f1_for_cm = parsed_checkpoint_name['f1_score'] # This is the F1 from training
+        # Note: model_name from parsed_checkpoint_name can also be used/verified against config
+    else:
+        print(f"WARNING: Could not parse checkpoint filename '{Path(checkpoint_path).name}' for confusion matrix plot naming. Using defaults/fallbacks.")
+        # Attempt to get epoch from checkpoint data if parsing fails (might be in old format checkpoint)
+        # This part depends on the structure of 'checkpoint' loaded earlier
+        # For now, we rely on parsing or defaults.
+        # Checkpoint data might contain 'epoch' and 'best_f1'
+        try:
+            # Checkpoint is loaded around line 100-102 in the original file
+            # If it's a dictionary and has the keys:
+            # Ensure 'checkpoint' variable is accessible here or re-load if necessary.
+            # This function re-loads the checkpoint anyway, so we can access it.
+            # The reloaded checkpoint for CM is: `checkpoint = torch.load(cp_path, map_location=device)`
+            # Let's assume `checkpoint` variable is the loaded content.
+            # Need to ensure `checkpoint` is defined from the loaded data.
+            # The code snippet shows `checkpoint = torch.load(cp_path, map_location=device)`
+            # So, checkpoint is the loaded data.
+            loaded_checkpoint_content = torch.load(Path(checkpoint_path), map_location=torch.device("cpu")) # Load fresh to inspect
+            if isinstance(loaded_checkpoint_content, dict):
+                epoch_for_cm = loaded_checkpoint_content.get('epoch', epoch_for_cm)
+                f1_for_cm = loaded_checkpoint_content.get('best_f1', f1_for_cm)
+        except Exception as e:
+            print(f"INFO: Could not inspect checkpoint content for fallback epoch/f1 for plot naming: {e}")
+
     cm = confusion_matrix(all_labels, all_preds)
     output_dir.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(6, 5))
@@ -142,7 +201,19 @@ def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Pa
     plt.xlabel('Predicted')
     plt.ylabel('Actual')
     plt.title('Confusion Matrix')
-    plt.savefig(output_dir / 'confusion_matrix.png')
+    
+    cm_filename_path = generate_artifact_name(
+        base_output_dir=output_dir,
+        model_config_name=model_cfg_name_for_plot, # from config
+        loss_function_name=loss_func_name_for_plot, # from config
+        epoch=epoch_for_cm, # from parsed ckpt name or fallback
+        artifact_type="plot_confusion_matrix",
+        f1_score=f1_for_cm, # from parsed ckpt name or fallback
+        timestamp_str=timestamp_for_cm, # from parsed ckpt name or fallback
+        extension="png"
+    )
+    plt.savefig(cm_filename_path)
+    print(f"Saved confusion matrix to {cm_filename_path}")
     plt.close()
 
 def main():
@@ -156,8 +227,13 @@ def main():
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
-    plot_metrics(args.metrics_file, out_dir)
+    config_main = load_config(args.config) # Load config once for main
+
+    # Pass the loaded config to plot_metrics
+    plot_metrics(config_main, args.metrics_file, out_dir)
+    
     if args.checkpoint:
+        # plot_confusion_matrix loads its own config, but args.config is the same path
         plot_confusion_matrix(args.config, args.checkpoint, out_dir)
 
 if __name__ == '__main__':

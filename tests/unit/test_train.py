@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from unittest.mock import patch, mock_open, MagicMock, call, ANY
 import copy
+import json
 
 # Functions and classes to test
 from src.train import load_config, train 
@@ -66,8 +67,8 @@ def mock_dependencies(mock_config: dict, tmp_path: Path):
          patch('os.path.exists') as mock_os_path_exists,\
          patch('torch.load') as mock_torch_load,\
          patch('src.train.re.search') as mock_re_search,\
-         patch('src.train.Path.mkdir') as mock_path_mkdir,\
-         patch('torch.device') as mock_torch_device:
+         patch('torch.device') as mock_torch_device,\
+         patch('src.train.generate_artifact_name') as mock_generate_artifact_name:
 
         mock_tokenizer.return_value = MagicMock(name='tokenizer')
         mock_download_data.return_value = (MagicMock(name='train_texts'), MagicMock(name='val_texts'))
@@ -123,6 +124,41 @@ def mock_dependencies(mock_config: dict, tmp_path: Path):
         mock_re_search.return_value = mock_match_object
         mock_torch_device.return_value = 'cpu'
 
+        # Mock generate_artifact_name to return a predictable path
+        def mock_generate_artifact_name_impl(*args, **kwargs):
+            base_dir = args[0] if args else kwargs.get('base_output_dir', 'test_output/models')
+            model_config_name_arg = args[1] if len(args) > 1 else kwargs.get('model_config_name', 'bert-tiny')
+            simple_model_name = model_config_name_arg.split('/')[-1] # Correctly get simple model name
+            loss_acronym = 'SWL'  # Default to SWL for tests
+            epoch = args[3] if len(args) > 3 else kwargs.get('epoch', 1)
+            artifact_type = args[4] if len(args) > 4 else kwargs.get('artifact_type', 'metrics')
+            timestamp_str = kwargs.get('timestamp_str', '20250509215244') # Use provided or default timestamp
+            extension = kwargs.get('extension', 'json')
+            f1_score = kwargs.get('f1_score')
+
+            filename_parts = [simple_model_name, timestamp_str, loss_acronym, f"e{epoch}"]
+            if artifact_type in ["checkpoint", "plot_confusion_matrix"] and f1_score is not None:
+                filename_parts.append(f"{f1_score:.4f}f1")
+            elif artifact_type in ["checkpoint", "plot_confusion_matrix"] and f1_score is None:
+                 filename_parts.append("NOF1") # Match real function's behavior if f1 is None for these types
+            
+            filename_core = "_".join(filename_parts)
+            suffix_parts = []
+            if artifact_type == "checkpoint":
+                suffix_parts.append("checkpoint")
+            elif artifact_type == "metrics":
+                suffix_parts.append("metrics")
+            # Add other artifact types if necessary, mirroring the real function
+            else:
+                suffix_parts.append(artifact_type)
+            
+            final_filename_str = f"{filename_core}_{'_'.join(suffix_parts)}" if suffix_parts else filename_core
+            filename_with_ext = f"{final_filename_str}.{extension.lstrip('.')}"
+
+            return Path(base_dir) / filename_with_ext
+        
+        mock_generate_artifact_name.side_effect = mock_generate_artifact_name_impl
+
         yield {
             'mock_tokenizer': mock_tokenizer,
             'mock_download_data': mock_download_data,
@@ -142,9 +178,9 @@ def mock_dependencies(mock_config: dict, tmp_path: Path):
             'mock_os_path_exists': mock_os_path_exists,
             'mock_torch_load': mock_torch_load,
             'mock_re_search': mock_re_search,
-            'mock_path_mkdir': mock_path_mkdir,
             'mock_torch_device': mock_torch_device,
-            'mock_base_bert_model_instance': mock_base_bert_model_instance
+            'mock_base_bert_model_instance': mock_base_bert_model_instance,
+            'mock_generate_artifact_name': mock_generate_artifact_name,
         }
 
 class TestLoadConfig:
@@ -185,18 +221,20 @@ class TestTrainFunction:
             train(config.copy())
             mock_dependencies['mock_torch_device'].assert_called_with('cpu')
 
-    def test_basic_training_flow_no_checkpoint(self, mock_dependencies, temp_config_file):
+    def test_basic_training_flow_no_checkpoint(self, mock_dependencies, temp_config_file, tmp_path):
         config = load_config(temp_config_file)
+        output_dir = tmp_path / "test_output_basic" / "models"
+        config['model']['output_dir'] = str(output_dir)
         config['training']['epochs'] = 1
 
         mock_evaluate = mock_dependencies['mock_evaluate']
         mock_torch_save = mock_dependencies['mock_torch_save']
         mock_os_path_exists = mock_dependencies['mock_os_path_exists']
-        mock_path_mkdir = mock_dependencies['mock_path_mkdir']
+        mock_generate_artifact_name = mock_dependencies['mock_generate_artifact_name']
 
-        mock_os_path_exists.return_value = False 
+        mock_os_path_exists.return_value = False
         mock_evaluate.return_value = {
-            'loss': 0.1, 'accuracy': 0.9, 'f1': 0.85, 
+            'loss': 0.1, 'accuracy': 0.9, 'f1': 0.85,
             'roc_auc': 0.92, 'precision': 0.88, 'recall': 0.82, 'mcc': 0.75
         }
 
@@ -208,17 +246,31 @@ class TestTrainFunction:
         mock_dependencies['mock_bert_config_load'].assert_called_once_with(config['model']['name'])
         assert mock_dependencies['mock_bert_config_instance'].num_labels == config['model']['num_labels']
         mock_dependencies['mock_custom_model'].assert_called_once_with(config=mock_dependencies['mock_bert_config_instance'])
-        mock_dependencies['mock_model_instance'].bert = mock_dependencies['mock_base_bert_model_instance'] # Check assignment
-        mock_dependencies['mock_model_instance'].to.assert_called_once_with(ANY) # Check device placement
+        mock_dependencies['mock_model_instance'].bert = mock_dependencies['mock_base_bert_model_instance']
+        mock_dependencies['mock_model_instance'].to.assert_called_once_with(ANY)
         mock_dependencies['mock_optimizer_instance'].step.assert_called_once()
         mock_dependencies['mock_scheduler_instance'].step.assert_called_once()
-        mock_evaluate.assert_called() 
-        mock_torch_save.assert_called() 
-        mock_path_mkdir.assert_called_with(parents=True, exist_ok=True)
+        mock_evaluate.assert_called() # Called for train and val
+        assert mock_evaluate.call_count == 2 # 1 epoch * 2 (train + val)
+        mock_torch_save.assert_called_once() # Checkpoint save
+
+        metrics_file_call_args = None
+        for call in mock_generate_artifact_name.call_args_list:
+            if call.kwargs.get('artifact_type') == 'metrics':
+                metrics_file_call_args = call
+                break
+        assert metrics_file_call_args is not None, "generate_artifact_name not called for metrics"
+        
+        # Get the actual path generated by the mock for the metrics file
+        actual_metrics_path = mock_generate_artifact_name.side_effect(*metrics_file_call_args.args, **metrics_file_call_args.kwargs)
+        
+        assert Path(config['model']['output_dir']).exists(), f"Base output directory {config['model']['output_dir']} was not created."
+        assert Path(actual_metrics_path).exists(), f"Metrics file {actual_metrics_path} was not created."
+        assert Path(actual_metrics_path).parent.exists(), f"Metrics file directory {Path(actual_metrics_path).parent} was not created."
 
     def test_bert_config_modifications_weighted_pooling(self, mock_dependencies, temp_config_file):
         config = load_config(temp_config_file)
-        config['model']['output_dir'] = str(temp_config_file)
+        config['model']['output_dir'] = str(Path(temp_config_file).parent)
         config['model']['pooling_strategy'] = 'weighted_layer'
         config['training']['checkpoint_path'] = None
 
@@ -229,6 +281,9 @@ class TestTrainFunction:
 
         assert mock_bert_config_instance.output_hidden_states is True
         mock_dependencies['mock_custom_model'].assert_called_once_with(config=mock_bert_config_instance)
+        
+        # Verify metrics file creation
+        mock_dependencies['mock_generate_artifact_name'].assert_called()
 
     def test_checkpoint_resume_new_format_with_config(self, mock_dependencies, temp_config_file):
         config = load_config(temp_config_file)
@@ -237,7 +292,7 @@ class TestTrainFunction:
 
         mock_dependencies['mock_os_path_exists'].return_value = True
         
-        checkpoint_config = copy.deepcopy(config) # Ensure deepcopy from test's fresh config
+        checkpoint_config = copy.deepcopy(config)
         checkpoint_config['training']['lr'] = 5e-6 
         checkpoint_config['training']['epochs'] = 3 
         
@@ -250,9 +305,9 @@ class TestTrainFunction:
             'config': checkpoint_config
         }
         mock_dependencies['mock_torch_load'].return_value = mock_checkpoint_content
-        mock_dependencies['mock_re_search'].return_value = MagicMock(group=lambda x: '1' if x in [1,2] else None) 
+        mock_dependencies['mock_re_search'].return_value = MagicMock(group=lambda x: '1' if x in [1,2] else None)
 
-        current_session_output_dir = "new_output_dir/models"
+        current_session_output_dir = str(Path(temp_config_file).parent / "new_output_dir_resume" / "models")
         config['model']['output_dir'] = current_session_output_dir
 
         train(config)
@@ -265,16 +320,31 @@ class TestTrainFunction:
         final_optimizer_call_args = mock_dependencies['mock_adamw'].call_args_list[-1]
         assert final_optimizer_call_args.kwargs['lr'] == checkpoint_config['training']['lr']
 
-        assert mock_dependencies['mock_evaluate'].call_count == (checkpoint_config['training']['epochs'] - (mock_checkpoint_content['epoch'] +1) +1) 
+        epochs_run = (checkpoint_config['training']['epochs'] - (mock_checkpoint_content['epoch'] + 1) + 1)
+        assert mock_dependencies['mock_evaluate'].call_count == epochs_run * 2
 
         mock_dependencies['mock_torch_save'].assert_called()
         saved_config_in_new_checkpoint = mock_dependencies['mock_torch_save'].call_args[0][0]['config']
         assert saved_config_in_new_checkpoint['model']['output_dir'] == current_session_output_dir
-        assert saved_config_in_new_checkpoint['training']['resume_from_checkpoint'] == "" 
+        assert saved_config_in_new_checkpoint['training']['resume_from_checkpoint'] == ""
+        
+        # Verify metrics file artifact generation was attempted for the correct final epoch and output dir
+        mock_dependencies['mock_generate_artifact_name'].assert_any_call(
+            base_output_dir=current_session_output_dir,
+            model_config_name=ANY, # Be flexible with exact name from potentially loaded config
+            loss_function_name=ANY, # Be flexible
+            epoch=checkpoint_config['training']['epochs'], # Metrics file uses total target epochs from (potentially loaded) config
+            artifact_type='metrics', 
+            extension='json',
+            timestamp_str=ANY # Timestamp will vary
+        )
 
-    def test_checkpoint_resume_old_format(self, mock_dependencies, temp_config_file):
+    def test_checkpoint_resume_old_format(self, mock_dependencies, temp_config_file, tmp_path):
         config = load_config(temp_config_file)
-        config['training']['epochs'] = 1 # Explicitly set epochs for this test
+        config['training']['epochs'] = 1 
+        # Ensure output_dir is within tmp_path for actual directory creation
+        output_dir = tmp_path / "test_output_old_format" / "models"
+        config['model']['output_dir'] = str(output_dir)
         checkpoint_path = "/fake/old_checkpoint_epoch0.pth"
         config['training']['resume_from_checkpoint'] = checkpoint_path
 
@@ -291,21 +361,50 @@ class TestTrainFunction:
         mock_dependencies['mock_optimizer_instance'].load_state_dict.assert_not_called()
         mock_dependencies['mock_scheduler_instance'].load_state_dict.assert_not_called()
         
-        assert mock_dependencies['mock_evaluate'].call_count == 1 
+        epochs_run = config['training']['epochs'] - 0 # Resumes from epoch 0+1=1, runs for 'epochs' total
+        assert mock_dependencies['mock_evaluate'].call_count == epochs_run * 2
+        
+        # Verify metrics file artifact generation was attempted
+        mock_dependencies['mock_generate_artifact_name'].assert_any_call(
+            base_output_dir=config['model']['output_dir'],
+            model_config_name=ANY,
+            loss_function_name=ANY,
+            epoch=config['training']['epochs'],
+            artifact_type='metrics', 
+            extension='json',
+            timestamp_str=ANY
+        )
 
-    def test_checkpoint_not_found(self, mock_dependencies, temp_config_file):
+    def test_checkpoint_not_found(self, mock_dependencies, temp_config_file, tmp_path):
         config = load_config(temp_config_file)
+        # Ensure output_dir is within tmp_path for actual directory creation
+        output_dir = tmp_path / "test_output_not_found" / "models"
+        config['model']['output_dir'] = str(output_dir)
         checkpoint_path = "/fake/non_existent.pth"
         config['training']['resume_from_checkpoint'] = checkpoint_path
-        mock_dependencies['mock_os_path_exists'].return_value = False 
+        mock_dependencies['mock_os_path_exists'].return_value = False
 
         train(config)
         mock_dependencies['mock_torch_load'].assert_not_called()
         mock_dependencies['mock_model_instance'].load_state_dict.assert_not_called()
-        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs']
+        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs'] * 2
+        
+        # Verify metrics file artifact generation was attempted
+        mock_dependencies['mock_generate_artifact_name'].assert_any_call(
+            base_output_dir=config['model']['output_dir'],
+            model_config_name=ANY,
+            loss_function_name=ANY,
+            epoch=config['training']['epochs'],
+            artifact_type='metrics', 
+            extension='json',
+            timestamp_str=ANY
+        )
 
-    def test_checkpoint_load_error(self, mock_dependencies, temp_config_file):
+    def test_checkpoint_load_error(self, mock_dependencies, temp_config_file, tmp_path):
         config = load_config(temp_config_file)
+        # Ensure output_dir is within tmp_path for actual directory creation
+        output_dir = tmp_path / "test_output_load_error" / "models"
+        config['model']['output_dir'] = str(output_dir)
         checkpoint_path = "/fake/corrupt_checkpoint.pth"
         config['training']['resume_from_checkpoint'] = checkpoint_path
 
@@ -314,51 +413,74 @@ class TestTrainFunction:
 
         train(config)
         mock_dependencies['mock_model_instance'].load_state_dict.assert_not_called()
-        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs']
+        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs'] * 2
+        
+        # Verify metrics file artifact generation was attempted
+        mock_dependencies['mock_generate_artifact_name'].assert_any_call(
+            base_output_dir=config['model']['output_dir'],
+            model_config_name=ANY,
+            loss_function_name=ANY,
+            epoch=config['training']['epochs'],
+            artifact_type='metrics', 
+            extension='json',
+            timestamp_str=ANY
+        )
 
     def test_no_improvement_no_save(self, mock_dependencies, temp_config_file):
         config = load_config(temp_config_file)
         config['model']['output_dir'] = str(Path(temp_config_file).parent)
         config['training']['epochs'] = 2 
-        config['training']['checkpoint_path'] = None
+        config['training']['resume_from_checkpoint'] = None # Corrected from checkpoint_path
         
         mock_evaluate = mock_dependencies['mock_evaluate']
         mock_torch_save = mock_dependencies['mock_torch_save']
 
+        # Ensure enough mock_evaluate results for all evaluations (train + val per epoch)
+        # Epoch 1: train_metrics, val_metrics (best_f1 updated, checkpoint saved)
+        # Epoch 2: train_metrics, val_metrics (no improvement, no new checkpoint)
         mock_evaluate.side_effect = [
-            {
-                'loss': 0.3, 'accuracy': 0.75, 'f1': 0.7, 
-                'roc_auc': 0.72, 'precision': 0.78, 'recall': 0.72, 'mcc': 0.65
-            }, 
-            {
-                'loss': 0.4, 'accuracy': 0.65, 'f1': 0.6, 
-                'roc_auc': 0.62, 'precision': 0.68, 'recall': 0.62, 'mcc': 0.55
-            }  
+            # Epoch 1 (eval on train, then val)
+            {'loss': 0.2, 'accuracy': 0.8, 'f1': 0.75, 'roc_auc': 0.8, 'precision': 0.8, 'recall': 0.8, 'mcc': 0.7},
+            {'loss': 0.3, 'accuracy': 0.75, 'f1': 0.7, 'roc_auc': 0.72, 'precision': 0.78, 'recall': 0.72, 'mcc': 0.65},
+            # Epoch 2 (eval on train, then val) 
+            {'loss': 0.25, 'accuracy': 0.78, 'f1': 0.72, 'roc_auc': 0.78, 'precision': 0.78, 'recall': 0.78, 'mcc': 0.68},
+            {'loss': 0.4, 'accuracy': 0.65, 'f1': 0.6, 'roc_auc': 0.62, 'precision': 0.68, 'recall': 0.62, 'mcc': 0.55}
         ]
 
         train(config)
+        # Expect 1 save for the first epoch where f1 improves from 0.0 to 0.7
+        # And metrics file save at the end
         assert mock_torch_save.call_count == 1 
+        mock_dependencies['mock_generate_artifact_name'].assert_any_call(
+            base_output_dir=ANY, model_config_name=ANY, loss_function_name=ANY, 
+            epoch=ANY, artifact_type='metrics', extension=ANY, timestamp_str=ANY
+        )
 
     def test_output_dir_creation(self, mock_dependencies, temp_config_file, tmp_path):
         config = load_config(temp_config_file)
-        output_dir = tmp_path / "new_test_output"
-        config['model']['output_dir'] = str(output_dir)
+        output_dir_str = str(tmp_path / "new_test_output_creation")
+        config['model']['output_dir'] = output_dir_str
         
-        mock_dependencies['mock_path_mkdir'].reset_mock()
+        mock_generate_artifact_name = mock_dependencies['mock_generate_artifact_name']
 
         train(config)
-        mock_dependencies['mock_path_mkdir'].assert_called_once_with(parents=True, exist_ok=True)
+        
+        metrics_file_call_args = None
+        for call in mock_generate_artifact_name.call_args_list:
+            if call.kwargs.get('artifact_type') == 'metrics':
+                metrics_file_call_args = call
+                break
+        assert metrics_file_call_args is not None, "generate_artifact_name was not called for metrics"
 
-# Test for the old test_basic_training_flow_with_checkpoint_resume (if still needed or refactored)
-# This test was complex and might be covered by the new/old format tests.
-# If specific logic from it needs to be preserved, it should be integrated into the existing tests
-# or a new focused test should be written.
+        actual_metrics_path = mock_generate_artifact_name.side_effect(*metrics_file_call_args.args, **metrics_file_call_args.kwargs)
 
-# Example of how mock_dependencies items can be used (from an older test structure):
+        assert Path(output_dir_str).exists(), f"Base output directory {output_dir_str} was not created."
+        assert Path(actual_metrics_path).exists(), f"Metrics file {actual_metrics_path} was not created."
+
 def test_example_mock_access(mock_dependencies, temp_config_file, tmp_path):
     config = load_config(temp_config_file)
     config['model']['output_dir'] = str(tmp_path)
-    config['training']['checkpoint_path'] = None 
+    config['training']['resume_from_checkpoint'] = None
 
     tokenizer_mock = mock_dependencies['mock_tokenizer']
     download_data_mock = mock_dependencies['mock_download_data']
@@ -372,7 +494,7 @@ def test_example_mock_access(mock_dependencies, temp_config_file, tmp_path):
     os_path_exists_mock = mock_dependencies['mock_os_path_exists']
     torch_load_mock = mock_dependencies['mock_torch_load']
     re_search_mock = mock_dependencies['mock_re_search']
-    path_mkdir_mock = mock_dependencies['mock_path_mkdir']
+    # mock_path_mkdir was removed, so remove access to it here
 
     model_instance_mock = mock_dependencies['mock_model_instance']
     optimizer_instance_mock = mock_dependencies['mock_optimizer_instance']
