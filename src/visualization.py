@@ -85,7 +85,7 @@ def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Pa
             m_config.output_hidden_states = False
         
         print("DEBUG: Attempting to initialize ModernBertForSentiment...") # Diagnostic print
-        model = ModernBertForSentiment.from_pretrained(model_cfg['name'], config=m_config)
+        model = ModernBertForSentiment(config=m_config)
 
     elif model_type == 'deberta':
         d_config = DebertaV2Config.from_pretrained(model_cfg['name'])
@@ -100,34 +100,26 @@ def plot_confusion_matrix(config_path: str, checkpoint_path: str, output_dir: Pa
             d_config.output_hidden_states = False
 
         print("DEBUG: Attempting to initialize DebertaForSentiment...") # Diagnostic print
-        model = DebertaForSentiment.from_pretrained(model_cfg['name'], config=d_config)
+        model = DebertaForSentiment(config=d_config)
 
     else:
         print(f"ERROR: Unsupported model_type '{model_type}' in config '{config_path}'. Supported: 'modernbert', 'deberta'.")
         return
 
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    if 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-    else:
-        state_dict = checkpoint 
-    
-    print(f"DEBUG: Model object type before load_state_dict: {type(model)}") # Diagnostic print
-    # Ensure the model is on the correct device before loading state_dict and evaluation
+    # Load checkpoint file and apply state_dict directly
+    cp_path = Path(checkpoint_path)
+    if not cp_path.is_file():
+        print(f"ERROR: Checkpoint file not found at {checkpoint_path}")
+        return
+    checkpoint = torch.load(cp_path, map_location=device)
+    state_dict = checkpoint.get('model_state_dict', checkpoint)
+    print(f"DEBUG: Model object type before loading weights: {type(model)}")
     model.to(device)
-    
-    try:
-        model.load_state_dict(state_dict)
-    except RuntimeError as e:
-        print(f"Failed to load state_dict into the model. This often occurs if the model architecture specified by:")
-        print(f"  - Config File: '{config_path}'")
-        print(f"    Model Type in Config: '{model_cfg.get('model_type', 'NOT_SPECIFIED')}'")
-        print(f"    Actual Model Type Instantiated: '{type(model).__name__}'")
-        print(f"  - Checkpoint File: '{checkpoint_path}'")
-        print(f"Ensure the 'model_type' in your config matches the architecture of the checkpoint.")
-        print(f"Original error: {e}")
-        return # Stop further execution if state_dict loading fails
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    if incompatible.missing_keys:
+        print(f"WARNING: Missing keys when loading state_dict: {incompatible.missing_keys}")
+    if incompatible.unexpected_keys:
+        print(f"WARNING: Unexpected keys in state_dict: {incompatible.unexpected_keys}")
 
     model.eval()
     all_preds, all_labels = [], []
