@@ -149,7 +149,15 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
             raise ValueError(f"Unknown pooling_strategy: {self.pooling_strategy}")
 
         pooled_features = self.features_dropout(pooled_features)
+        # ---- START DEBUG PRINT ----
+        if input_ids is not None and input_ids.requires_grad: # Print only during training passes
+            print(f"DEBUG (ModernBertForSentiment.forward): pooled_features mean: {pooled_features.mean().item():.4f}, std: {pooled_features.std().item():.4f}")
+        # ----  END DEBUG PRINT  ----
         logits = self.classifier(pooled_features)
+        # ---- START DEBUG PRINT ----
+        if input_ids is not None and input_ids.requires_grad:
+            print(f"DEBUG (ModernBertForSentiment.forward): logits mean: {logits.mean().item():.4f}, std: {logits.std().item():.4f}")
+        # ----  END DEBUG PRINT  ----
 
         loss = None
         if labels is not None:
@@ -302,7 +310,15 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
             raise ValueError(f"Unknown pooling_strategy: {self.pooling_strategy}")
 
         pooled_features = self.features_dropout(pooled_features)
+        # ---- START DEBUG PRINT ----
+        if input_ids is not None and input_ids.requires_grad: # Print only during training passes
+            print(f"DEBUG (DebertaForSentiment.forward): pooled_features mean: {pooled_features.mean().item():.4f}, std: {pooled_features.std().item():.4f}")
+        # ----  END DEBUG PRINT  ----
         logits = self.classifier(pooled_features)
+        # ---- START DEBUG PRINT ----
+        if input_ids is not None and input_ids.requires_grad:
+            print(f"DEBUG (DebertaForSentiment.forward): logits mean: {logits.mean().item():.4f}, std: {logits.std().item():.4f}")
+        # ----  END DEBUG PRINT  ----
 
         loss = None
         if labels is not None:

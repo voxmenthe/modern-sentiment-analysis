@@ -36,10 +36,9 @@ def evaluate(model, dataloader, device, compute_loss: bool = True):
             if lengths is not None:
                 model_inputs['lengths'] = lengths
             
-            # Apply torch.autocast for MPS and CUDA
+            # Apply torch.autocast for MPS and CUDA - Disabled for MPS
             if device.type == 'mps':
-                with torch.autocast(device_type="mps", dtype=torch.float16):
-                    outputs = model(**model_inputs)
+                outputs = model(**model_inputs) 
             elif device.type == 'cuda':
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = model(**model_inputs)

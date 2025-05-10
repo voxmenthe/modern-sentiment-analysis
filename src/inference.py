@@ -34,17 +34,14 @@ class SentimentInference:
         print(f"Loading ModernBertConfig from: {base_model_name}")
         bert_config = ModernBertConfig.from_pretrained(base_model_name) 
         
-        # --- Apply any necessary overrides from your config to the loaded bert_config --- 
-        # For example, if your ModernBertForSentiment expects specific config values beyond the base BERT model.
-        # Your current ModernBertForSentiment takes the entire config object, which might implicitly carry these.
-        # However, explicitly setting them on bert_config loaded from HF is safer if they are architecturally relevant.
+        # Apply any necessary overrides from my config to the loaded bert_config
+        # For example, if our custom ModernBertForSentiment expects specific config values beyond the base BERT model.
+        # Explicitly setting them on bert_config loaded from HF is safer so we do that.
         bert_config.classifier_dropout = model_cfg.get('dropout', bert_config.classifier_dropout) # Example
-        # Ensure num_labels is set if your inference model needs it (usually for HF pipeline, less so for manual predict)
+        # Ensure num_labels is set if inference model needs it (usually for HF pipeline, less so for manual predict)
         # bert_config.num_labels = model_cfg.get('num_labels', 1) # Typically 1 for binary sentiment regression-style output
 
-        # It's also important that pooling_strategy and num_weighted_layers are set on the config object 
-        # that ModernBertForSentiment receives, as it uses these to build its layers.
-        # These are usually fine-tuning specific, not part of the base HF config, so they should come from your model_cfg.
+        # It's also important that pooling_strategy and num_weighted_layers are set on # # the config object that ModernBertForSentiment receives, as it uses these to # build its layers. These are usually fine-tuning specific, not part of the base HF config, so they should come from model_cfg.
         bert_config.pooling_strategy = model_cfg.get('pooling_strategy', 'cls')
         bert_config.num_weighted_layers = model_cfg.get('num_weighted_layers', 4)
         bert_config.loss_function = model_cfg.get('loss_function', {'name': 'SentimentWeightedLoss', 'params': {}}) # Needed by model init
@@ -73,17 +70,20 @@ class SentimentInference:
         self.model.eval()
 
         # Apply torch.compile() after model is loaded and in eval mode
-        # Skip torch.compile for MPS for now to avoid shader compilation issues.
-        # Attempt torch.compile for CUDA.
-        if self.device.type == 'cuda' and hasattr(torch, 'compile'):
+        if self.device.type == 'mps' and hasattr(torch, 'compile'):
+            print("Attempting to compile the inference model with torch.compile() for MPS (backend: aot_eager)...")
+            try:
+                self.model = torch.compile(self.model, backend="aot_eager")
+                print("Inference model compiled successfully for MPS with 'aot_eager' backend.")
+            except Exception as e_mps_aot:
+                print(f"MPS inference model compilation failed with 'aot_eager' backend: {e_mps_aot}. Proceeding without compilation on MPS.")
+        elif self.device.type == 'cuda' and hasattr(torch, 'compile'):
             print(f"Attempting to compile the inference model with torch.compile() for CUDA...")
             try:
-                self.model = torch.compile(self.model, backend='inductor') # Default for CUDA
+                self.model = torch.compile(self.model, backend='inductor') 
                 print(f"Inference model compiled successfully for CUDA with backend 'inductor'.")
             except Exception as e:
                 print(f"Inference model compilation failed for CUDA with backend 'inductor': {e}. Proceeding without compilation.")
-        elif self.device.type == 'mps' and hasattr(torch, 'compile'):
-            print("INFO: Skipping torch.compile() for MPS device in inference to avoid potential shader compilation issues.")
         elif not hasattr(torch, 'compile'):
             print("torch.compile not available in this PyTorch version.")
 
@@ -93,11 +93,10 @@ class SentimentInference:
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length)
         inputs = {k: v.to(self.device) for k, v in inputs.items()} # Move inputs to the model's device
 
-        # Use torch.inference_mode() and torch.autocast for inference
+        # Use torch.inference_mode() and torch.autocast for inference - autocast disabled for MPS
         with torch.inference_mode():
             if self.device.type == 'mps':
-                with torch.autocast(device_type="mps", dtype=torch.float16):
-                    outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+                outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
             elif self.device.type == 'cuda':
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])

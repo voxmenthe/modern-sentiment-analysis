@@ -145,22 +145,22 @@ def train(config_param):
     model.to(device)
 
     # Apply torch.compile()
-    # Skip torch.compile for MPS for now to avoid shader compilation issues.
-    # Attempt torch.compile for CUDA.
-    if torch.cuda.is_available() and hasattr(torch, 'compile'):
+    if torch.backends.mps.is_available() and hasattr(torch, 'compile'):
+        print("Attempting to compile the model with torch.compile() for MPS (backend: aot_eager)...")
+        try:
+            model = torch.compile(model, backend="aot_eager")
+            print("Model compiled successfully for MPS with 'aot_eager' backend.")
+        except Exception as e_mps_aot:
+            print(f"MPS model compilation failed with 'aot_eager' backend: {e_mps_aot}. Proceeding without compilation on MPS.")
+    elif torch.cuda.is_available() and hasattr(torch, 'compile'):
         print("Attempting to compile the model with torch.compile() for CUDA (mode: default)...")
         try:
             model = torch.compile(model, mode="default") 
             print("Model compiled successfully for CUDA.")
         except Exception as e_cuda:
             print(f"CUDA model compilation failed: {e_cuda}. Proceeding without compilation.")
-    elif torch.backends.mps.is_available() and hasattr(torch, 'compile'):
-        print("INFO: Skipping torch.compile() for MPS device to avoid potential shader compilation issues.")
-        print("         Other MPS optimizations like autocast will still be used.")
     elif not hasattr(torch, 'compile'):
         print("torch.compile not available in this PyTorch version.")
-    # Removed the general 'else' for "Neither CUDA nor MPS available for torch.compile()"
-    # as the MPS case is now explicitly handled by skipping.
 
     # Gradient Checkpointing (optional, from config)
     if training_config.get("gradient_checkpointing", False): # Default to False if not specified
@@ -315,16 +315,14 @@ def train(config_param):
             current_batch_for_model = batch
             optimizer.zero_grad(set_to_none=True) # Use set_to_none=True
 
-            # Automatic Mixed Precision (AMP)
+
             if device.type == 'mps':
-                with torch.autocast(device_type="mps", dtype=torch.float16):
-                    outputs = model(**current_batch_for_model)
-                    loss = outputs.loss
-                # For MPS, backward and step are done directly on the loss
+                outputs = model(**current_batch_for_model) 
+                loss = outputs.loss                         
                 loss.backward()
                 optimizer.step()
             elif device.type == 'cuda' and scaler is not None:
-                with torch.autocast(device_type="cuda", dtype=torch.float16): # dtype can be None for CUDA to auto-select
+                with torch.autocast(device_type="cuda", dtype=torch.float16): 
                     outputs = model(**current_batch_for_model)
                     loss = outputs.loss
                 scaler.scale(loss).backward()
@@ -335,10 +333,16 @@ def train(config_param):
                 loss = outputs.loss
                 loss.backward()
                 optimizer.step()
-            
+
+
             lr_scheduler.step()
             # optimizer.zero_grad() # Moved and changed to set_to_none=True above
+            if loss is not None: # Add to total_loss only if loss is not None
+                 total_loss += loss.item()
             if step % 100 == 0:
+                # ---- START DETAILED DEBUG PRINT ----
+                print(f"DEBUG PRINT BEFORE AVG LOSS: Epoch {epoch}, Step {step}, total_loss: {total_loss:.8f}, step: {step}")
+                # ----  END DETAILED DEBUG PRINT  ----
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
         # Compute and log training metrics
