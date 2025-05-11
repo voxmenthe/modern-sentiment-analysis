@@ -6,8 +6,8 @@ import seaborn as sns
 from pathlib import Path
 from sklearn.metrics import confusion_matrix
 from transformers import AutoTokenizer, ModernBertConfig, DebertaV2Config
-from src.data import download_and_prepare_datasets, create_dataloaders
-from src.modeling import ModernBertForSentiment, DebertaForSentiment
+from src.data_processing import download_and_prepare_datasets, create_dataloaders
+from src.models import ModernBertForSentiment, DebertaForSentiment
 from src.utils import generate_artifact_name, parse_artifact_filename
 import datetime
 import re

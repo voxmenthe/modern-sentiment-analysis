@@ -127,7 +127,7 @@ Once a model is trained, it will generate a `metrics.json` file in the directory
 To run the visualization script, run the following command:
 
 ```bash
-python visualization.py --metrics_path <path_to_metrics_json> --checkpoint <path_to_checkpoint> --config <path_to_config> --output_dir <path_to_output_dir>
+python src/visualization.py --metrics-file <path_to_metrics_json> --checkpoint <path_to_checkpoint> --config <path_to_config> --output_dir <path_to_output_dir>
 ```
 
 **Note that <path_to_metrics_json> is needed for most of the visualizations and <path_to_checkpoint> is needed for the confusion matrix.**
