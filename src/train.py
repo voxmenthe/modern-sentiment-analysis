@@ -1,4 +1,9 @@
-from __future__ import annotations
+from __future__ import annotations # MUST BE AT THE TOP
+
+import sys
+print(f"DEBUG: sys.path in train.py: {sys.path}") # SYSPATH DIAGNOSTIC
+import os
+print(f"DEBUG: Executing src/train.py from: {os.path.abspath(__file__)}") # PATH DIAGNOSTIC
 import argparse
 import math
 import os
@@ -266,6 +271,7 @@ def train(config_param):
         except Exception as e:
             print(f"Warning: Could not load scheduler state: {e}. Scheduler reinitialized.")
 
+    print("DEBUG: Initializing history object in train.py") # DIAGNOSTIC PRINT
     history = {
         "epoch": [],
         "train_loss": [], "train_accuracy": [], "train_f1": [], "train_roc_auc": [], "train_precision": [], "train_recall": [], "train_mcc": [],
@@ -291,18 +297,17 @@ def train(config_param):
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
-        # Compute and log training metrics
-        train_metrics = evaluate(model, train_dl, device)
-        print(f"Epoch {epoch} train – Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
-              f"AUC: {train_metrics['roc_auc']:.4f}, Precision: {train_metrics['precision']:.4f}, Recall: {train_metrics['recall']:.4f}, MCC: {train_metrics['mcc']:.4f}")
+        # Calculate and store average training loss for the epoch
+        if len(train_dl) > 0:
+            avg_epoch_train_loss = total_loss / len(train_dl)
+            history["train_loss"].append(avg_epoch_train_loss)
+        elif total_loss > 0: # train_dl was empty, but loss was accumulated (should not happen in normal run)
+             history["train_loss"].append(float('nan'))
+        else: # train_dl empty and no loss
+            history["train_loss"].append(0.0) # Default for empty train_dl
+        
+        # Record epoch number (it was previously part of the removed training metrics block)
         history["epoch"].append(epoch)
-        history["train_loss"].append(train_metrics["loss"])
-        history["train_accuracy"].append(train_metrics["accuracy"])
-        history["train_f1"].append(train_metrics["f1"])
-        history["train_roc_auc"].append(train_metrics["roc_auc"])
-        history["train_precision"].append(train_metrics["precision"])
-        history["train_recall"].append(train_metrics["recall"])
-        history["train_mcc"].append(train_metrics["mcc"])
 
         metrics = evaluate(model, val_dl, device)
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
@@ -365,6 +370,7 @@ def train(config_param):
     # Ensure output directory for metrics exists (though generate_artifact_name places it in base_output_dir)
     Path(model_config['output_dir']).mkdir(parents=True, exist_ok=True)
 
+    print(f"DEBUG: History object in train.py before saving: {history}") # DIAGNOSTIC PRINT
     with open(metrics_file_path, "w") as f:
         json.dump(history, f, indent=4)
     print(f"Metrics history saved to {metrics_file_path}")

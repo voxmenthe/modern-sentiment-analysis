@@ -250,8 +250,8 @@ class TestTrainFunction:
         mock_dependencies['mock_model_instance'].to.assert_called_once_with(ANY)
         mock_dependencies['mock_optimizer_instance'].step.assert_called_once()
         mock_dependencies['mock_scheduler_instance'].step.assert_called_once()
-        mock_evaluate.assert_called() # Called for train and val
-        assert mock_evaluate.call_count == 2 # 1 epoch * 2 (train + val)
+        mock_evaluate.assert_called() # Called for val only now
+        assert mock_evaluate.call_count == 1 # 1 epoch * 1 (val only)
         mock_torch_save.assert_called_once() # Checkpoint save
 
         metrics_file_call_args = None
@@ -321,7 +321,7 @@ class TestTrainFunction:
         assert final_optimizer_call_args.kwargs['lr'] == checkpoint_config['training']['lr']
 
         epochs_run = (checkpoint_config['training']['epochs'] - (mock_checkpoint_content['epoch'] + 1) + 1)
-        assert mock_dependencies['mock_evaluate'].call_count == epochs_run * 2
+        assert mock_dependencies['mock_evaluate'].call_count == epochs_run
 
         mock_dependencies['mock_torch_save'].assert_called()
         saved_config_in_new_checkpoint = mock_dependencies['mock_torch_save'].call_args[0][0]['config']
@@ -362,7 +362,7 @@ class TestTrainFunction:
         mock_dependencies['mock_scheduler_instance'].load_state_dict.assert_not_called()
         
         epochs_run = config['training']['epochs'] - 0 # Resumes from epoch 0+1=1, runs for 'epochs' total
-        assert mock_dependencies['mock_evaluate'].call_count == epochs_run * 2
+        assert mock_dependencies['mock_evaluate'].call_count == epochs_run
         
         # Verify metrics file artifact generation was attempted
         mock_dependencies['mock_generate_artifact_name'].assert_any_call(
@@ -387,7 +387,7 @@ class TestTrainFunction:
         train(config)
         mock_dependencies['mock_torch_load'].assert_not_called()
         mock_dependencies['mock_model_instance'].load_state_dict.assert_not_called()
-        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs'] * 2
+        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs']
         
         # Verify metrics file artifact generation was attempted
         mock_dependencies['mock_generate_artifact_name'].assert_any_call(
@@ -413,7 +413,7 @@ class TestTrainFunction:
 
         train(config)
         mock_dependencies['mock_model_instance'].load_state_dict.assert_not_called()
-        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs'] * 2
+        assert mock_dependencies['mock_evaluate'].call_count == config['training']['epochs']
         
         # Verify metrics file artifact generation was attempted
         mock_dependencies['mock_generate_artifact_name'].assert_any_call(
