@@ -1,3 +1,7 @@
 PROJECT_PLANS
 **/__pycache__
 test_output
+.DS_Store
+checkpoints
+checkpoints_deberta
+fl_mb_plots

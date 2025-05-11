@@ -6,81 +6,11 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import torch
 
 # Import functions to be tested
-from src.data_processing import download_and_prepare_datasets, create_dataloaders
+from src.data_processing import download_and_prepare_datasets, create_dataloaders, add_len
 
 @pytest.fixture
-def mock_tokenizer():
-    '''Fixture for a mock tokenizer with a .pad() method for DataCollatorWithPadding.'''
-    tokenizer = MagicMock(spec=AutoTokenizer)
-    tokenizer.pad_token_id = 0
-    tokenizer.model_max_length = 512
-    tokenizer.padding_side = "right"
-
-    def mock_tokenize_fn(text_or_batch, truncation=True, max_length=256, padding=False, add_special_tokens=True, **kwargs):
-        if isinstance(text_or_batch, str):
-            return {'input_ids': [101, 200, 102], 'attention_mask': [1, 1, 1]}
-        output_batch = {'input_ids': [], 'attention_mask': []}
-        for _ in text_or_batch:
-            output_batch['input_ids'].append([101, 200, 201, 102])
-            output_batch['attention_mask'].append([1, 1, 1, 1])
-        return output_batch
-    
-    # Set side_effect for the tokenizer mock itself to execute mock_tokenize_fn when called.
-    tokenizer.side_effect = mock_tokenize_fn
-
-    def mock_pad_fn(encoded_inputs, padding=True, max_length=None, return_tensors="pt", **kwargs):
-        if not encoded_inputs:
-            return {}
-        processed_features = []
-        current_max_length_in_batch = 0
-        # Ensure keys_in_batch is robust if encoded_inputs[0] is not fully populated or is an empty dict
-        keys_in_batch = list(encoded_inputs[0].keys()) if encoded_inputs and encoded_inputs[0] else []
-
-        for item in encoded_inputs:
-            processed_item = {}
-            for key, value in item.items():
-                if isinstance(value, torch.Tensor):
-                    if value.ndim == 0:
-                        processed_item[key] = [value.item()]
-                    else:
-                        processed_item[key] = value.tolist()
-                elif not isinstance(value, list):
-                     processed_item[key] = [value]
-                else:
-                    processed_item[key] = value
-                
-                if key == 'input_ids':
-                    current_max_length_in_batch = max(current_max_length_in_batch, len(processed_item[key]))
-            processed_features.append(processed_item)
-
-        effective_max_length = max_length if max_length is not None else current_max_length_in_batch
-        final_batch_dict = {key: [] for key in keys_in_batch}
-
-        for item in processed_features:
-            for key in keys_in_batch:
-                current_val_list = item[key]
-                if key in ['input_ids', 'attention_mask']:
-                    pad_value = tokenizer.pad_token_id if key == 'input_ids' else 0
-                    pad_len = effective_max_length - len(current_val_list)
-                    padded_list = current_val_list + [pad_value] * pad_len
-                    final_batch_dict[key].append(padded_list[:effective_max_length])
-                else: 
-                    final_batch_dict[key].append(current_val_list[0] if isinstance(current_val_list, list) and len(current_val_list) == 1 and not isinstance(current_val_list[0], list) else current_val_list)
-        
-        if return_tensors == "pt":
-            for key, value_lists in final_batch_dict.items():
-                try:
-                    if key in ['input_ids', 'attention_mask', 'labels', 'lengths']:
-                         final_batch_dict[key] = torch.tensor(value_lists, dtype=torch.long)
-                except Exception as e:
-                    print(f"Warning: Could not convert key '{key}' to stacked tensor in mock_pad_fn: {e}")
-                    pass 
-            return final_batch_dict
-        else:
-            raise NotImplementedError("Mock only supports return_tensors='pt' for pad method")
-
-    tokenizer.pad = MagicMock(side_effect=mock_pad_fn)
-    return tokenizer
+def real_tokenizer_for_test():
+    return AutoTokenizer.from_pretrained("prajjwal1/bert-tiny")
 
 @pytest.fixture
 def sample_raw_dataset():
@@ -92,38 +22,25 @@ def sample_raw_dataset():
     return DatasetDict({'train': train_dataset, 'test': test_dataset})
 
 @pytest.fixture
-def sample_tokenized_dataset():
-    '''Fixture for a sample tokenized dataset. Now with 4 train samples.'''
-    train_data = {
-        'input_ids': torch.tensor([
-            [101, 2054, 2022, 102], [101, 2064, 2022, 102],
-            [101, 2000, 2001, 102], [101, 2002, 2003, 102]
-        ]),
-        'attention_mask': torch.tensor([
-            [1, 1, 1, 1], [1, 1, 1, 1],
-            [1, 1, 1, 1], [1, 1, 1, 1]
-        ]),
-        'labels': torch.tensor([0, 1, 0, 1])
-    }
-    test_data = {
-        'input_ids': torch.tensor([[101, 2054, 2023, 102], [101, 2064, 2023, 102]]),
-        'attention_mask': torch.tensor([[1, 1, 1, 1], [1, 1, 1, 1]]),
-        'labels': torch.tensor([1, 0])
-    }
-    train_dataset = Dataset.from_dict(train_data).with_format("torch")
-    test_dataset = Dataset.from_dict(test_data).with_format("torch")
-    return DatasetDict({'train': train_dataset, 'test': test_dataset})
-
+def sample_tokenized_dataset(real_tokenizer_for_test, sample_raw_dataset):
+    tokenizer = real_tokenizer_for_test
+    def tokenize_fn(batch):
+        return tokenizer(batch["text"], truncation=True, max_length=10)
+    
+    tokenized = sample_raw_dataset.map(tokenize_fn, batched=True, remove_columns=["text"])
+    tokenized = tokenized.rename_column("label", "labels")
+    tokenized.set_format(type="torch")
+    return tokenized
 
 @patch('src.data_processing.load_dataset')
-def test_download_and_prepare_datasets(mock_load_dataset, mock_tokenizer, sample_raw_dataset):
+def test_download_and_prepare_datasets(mock_load_dataset, mock_tokenizer_for_download_test, sample_raw_dataset):
     mock_load_dataset.return_value = sample_raw_dataset
     max_len = 128
-    tokenized_dset = download_and_prepare_datasets(tokenizer=mock_tokenizer, max_length=max_len)
+    tokenized_dset = download_and_prepare_datasets(tokenizer=mock_tokenizer_for_download_test, max_length=max_len)
 
     mock_load_dataset.assert_called_once_with("imdb")
     # Check that the mock_tokenizer itself was called, which will trigger its side_effect.
-    mock_tokenizer.assert_called() 
+    mock_tokenizer_for_download_test.assert_called() 
 
     assert isinstance(tokenized_dset, DatasetDict)
     assert "train" in tokenized_dset
@@ -135,9 +52,9 @@ def test_download_and_prepare_datasets(mock_load_dataset, mock_tokenizer, sample
     assert tokenized_dset["train"].format["type"] == "torch"
     assert tokenized_dset["test"].format["type"] == "torch"
 
-def test_create_dataloaders(sample_tokenized_dataset, mock_tokenizer):
+def test_create_dataloaders(sample_tokenized_dataset, real_tokenizer_for_test):
     batch_size = 4
-    train_dl, val_dl = create_dataloaders(dset=sample_tokenized_dataset, tokenizer=mock_tokenizer, batch_size=batch_size)
+    train_dl, val_dl = create_dataloaders(dset=sample_tokenized_dataset, tokenizer=real_tokenizer_for_test, batch_size=batch_size)
 
     assert isinstance(train_dl, DataLoader)
     assert isinstance(val_dl, DataLoader)
@@ -145,8 +62,8 @@ def test_create_dataloaders(sample_tokenized_dataset, mock_tokenizer):
     assert val_dl.batch_size == batch_size
     assert isinstance(train_dl.collate_fn, DataCollatorWithPadding)
     assert isinstance(val_dl.collate_fn, DataCollatorWithPadding)
-    assert train_dl.collate_fn.tokenizer == mock_tokenizer
-    assert val_dl.collate_fn.tokenizer == mock_tokenizer
+    assert train_dl.collate_fn.tokenizer == real_tokenizer_for_test
+    assert val_dl.collate_fn.tokenizer == real_tokenizer_for_test
     
     first_train_batch = next(iter(train_dl))
     assert 'lengths' in first_train_batch
@@ -162,3 +79,44 @@ def test_create_dataloaders(sample_tokenized_dataset, mock_tokenizer):
     # Check sampler types for shuffle argument verification
     assert isinstance(train_dl.sampler, RandomSampler)
     assert isinstance(val_dl.sampler, SequentialSampler)
+
+    # Check if we can iterate through a batch (this is where pickling often fails)
+    try:
+        first_train_batch = next(iter(train_dl))
+        assert first_train_batch["input_ids"].shape[0] <= batch_size
+        # Further checks on batch contents can be added if needed
+    except Exception as e:
+        pytest.fail(f"Failed to iterate over train_dl with real tokenizer: {e}")
+
+    try:
+        first_val_batch = next(iter(val_dl))
+        assert first_val_batch["input_ids"].shape[0] <= batch_size
+    except Exception as e:
+        pytest.fail(f"Failed to iterate over val_dl with real tokenizer: {e}")
+
+@pytest.fixture
+def mock_tokenizer_for_download_test():
+    mock = MagicMock(spec=AutoTokenizer)
+    # Configure mock tokenizer attributes and methods as needed by download_and_prepare_datasets
+    mock.pad_token_id = 0
+    mock.model_max_length = 512
+    # Example of mocking the __call__ behavior if tokenizer is called directly
+    def mock_tokenize_call(text, truncation, max_length):
+        # Simulate tokenization output structure
+        if isinstance(text, list):
+            return {
+                "input_ids": [[101, 1000, 1002] for _ in text],
+                "attention_mask": [[1, 1, 1] for _ in text]
+            }
+        return {"input_ids": [101, 1000, 1002], "attention_mask": [1,1,1]}
+    mock.side_effect = mock_tokenize_call # if tokenizer is called like tokenizer(...)
+    # If tokenizer is used like tokenizer.encode_plus or other methods, mock those specifically.
+    return mock
+
+def test_add_len_function():
+    example_to_process = {"input_ids": torch.tensor([101, 200, 201, 102]), "attention_mask": torch.tensor([1, 1, 1, 0])}
+    # Call the add_len function to modify the dictionary
+    processed_example = add_len(example_to_process.copy()) # Use .copy() if add_len modifies in-place and you want to preserve original
+
+    assert "lengths" in processed_example
+    assert processed_example["lengths"] == 3 # atenção_mask sums to 3 (1+1+1+0)

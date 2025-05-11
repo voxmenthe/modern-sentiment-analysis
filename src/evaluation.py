@@ -2,7 +2,9 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 
 
-def evaluate(model, dataloader, device):
+def evaluate(model, dataloader, device, *,
+             compute_loss: bool = False, # Added: Ticket 3, used by Ticket 2
+             max_batches: int | None = None): # Added: Ticket 2
     model.eval()
     all_preds = []
     all_labels = []
@@ -10,7 +12,9 @@ def evaluate(model, dataloader, device):
     total_loss = 0
 
     with torch.no_grad():
-        for batch in dataloader:
+        for i, batch in enumerate(dataloader): # Added enumerate for max_batches logic
+            if max_batches and i >= max_batches: # Added: Ticket 2
+                break
             # Move batch to device, ensure all model inputs are covered
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
@@ -29,16 +33,26 @@ def evaluate(model, dataloader, device):
             model_inputs = {
                 'input_ids': input_ids,
                 'attention_mask': attention_mask,
-                'labels': labels
+                # 'labels': labels # Labels only added if compute_loss is True
             }
-            if lengths is not None:
-                model_inputs['lengths'] = lengths
+
+            if compute_loss: # Added: Ticket 3
+                model_inputs['labels'] = batch['labels'].to(device)
+                if lengths is not None: # Keep lengths if labels are present
+                    model_inputs['lengths'] = lengths
             
             outputs = model(**model_inputs)
-            loss = outputs.loss
+            
+            # Loss calculation only if compute_loss is True
+            if compute_loss: # Added: Ticket 3
+                loss = outputs.loss
+                total_loss += loss.item()
+            else:
+                loss = None # Ensure loss is None if not computed
+
             logits = outputs.logits
 
-            total_loss += loss.item()
+            # total_loss += loss.item() # Moved into compute_loss block
             
             if logits.shape[1] > 1: 
                 preds = torch.argmax(logits, dim=1)
@@ -55,7 +69,7 @@ def evaluate(model, dataloader, device):
                 probs = torch.sigmoid(logits) 
                 all_probs_for_auc.extend(probs.squeeze().cpu().numpy())
 
-    avg_loss = total_loss / len(dataloader)
+    avg_loss = (total_loss / len(dataloader)) if compute_loss and len(dataloader) > 0 else 0.0 # Modified: Ticket 3
     accuracy = accuracy_score(all_labels, all_preds)
     f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
     precision = precision_score(all_labels, all_preds, average='weighted', zero_division=0)

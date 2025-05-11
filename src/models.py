@@ -78,31 +78,17 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
 
     def _mean_pool(self, last_hidden_state, attention_mask):
         if attention_mask is None:
-            attention_mask = torch.ones_like(last_hidden_state[:, :, 0]) # Assuming first dim of last hidden state is token ids
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        return sum_embeddings / sum_mask
+            attention_mask = torch.ones_like(last_hidden_state[..., 0])
+        mask = attention_mask.unsqueeze(-1).float()   # B×L×1
+        summed = (last_hidden_state * mask).sum(1)
+        denom = mask.sum(1).clamp(min=1e-9)
+        return summed / denom
 
     def _weighted_layer_pool(self, all_hidden_states):
-        # all_hidden_states includes embeddings + output of each layer.
-        # We want the outputs of the last num_weighted_layers.
-        # Example: 12 layers -> all_hidden_states have 13 items (embeddings + 12 layers)
-        # num_weighted_layers = 4 -> use layers 9, 10, 11, 12 (indices -4, -3, -2, -1)
-        layers_to_weigh = torch.stack(all_hidden_states[-self.num_weighted_layers:], dim=0)
-        # layers_to_weigh shape: (num_weighted_layers, batch_size, sequence_length, hidden_size)
-        
-        # Normalize weights to sum to 1 (softmax or simple division)
-        normalized_weights = F.softmax(self.layer_weights, dim=-1)
-        
-        # Weighted sum across layers
-        # Reshape weights for broadcasting: (num_weighted_layers, 1, 1, 1)
-        weighted_hidden_states = layers_to_weigh * normalized_weights.view(-1, 1, 1, 1)
-        weighted_sum_hidden_states = torch.sum(weighted_hidden_states, dim=0)
-        # weighted_sum_hidden_states shape: (batch_size, sequence_length, hidden_size)
-        
-        # Pool the result (e.g., take [CLS] token of this weighted sum)
-        return weighted_sum_hidden_states[:, 0] # Return CLS token of the weighted sum
+        layers = all_hidden_states[-self.num_weighted_layers:]     # list(len=L)
+        weights = F.softmax(self.layer_weights, dim=-1)            # (L,)
+        pooled = torch.einsum("lbhc,l->bhc", torch.stack(layers), weights)
+        return pooled[:, 0]   # CLS token
 
     def forward(
         self,
@@ -236,18 +222,17 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
 
     def _mean_pool(self, last_hidden_state, attention_mask):
         if attention_mask is None:
-            attention_mask = torch.ones_like(last_hidden_state[:, :, 0])
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        return sum_embeddings / sum_mask
+            attention_mask = torch.ones_like(last_hidden_state[..., 0])
+        mask = attention_mask.unsqueeze(-1).float()   # B×L×1
+        summed = (last_hidden_state * mask).sum(1)
+        denom = mask.sum(1).clamp(min=1e-9)
+        return summed / denom
 
     def _weighted_layer_pool(self, all_hidden_states):
-        layers_to_weigh = torch.stack(all_hidden_states[-self.num_weighted_layers:], dim=0)
-        normalized_weights = F.softmax(self.layer_weights, dim=-1)
-        weighted_hidden_states = layers_to_weigh * normalized_weights.view(-1, 1, 1, 1)
-        weighted_sum_hidden_states = torch.sum(weighted_hidden_states, dim=0)
-        return weighted_sum_hidden_states[:, 0]
+        layers = all_hidden_states[-self.num_weighted_layers:]     # list(len=L)
+        weights = F.softmax(self.layer_weights, dim=-1)            # (L,)
+        pooled = torch.einsum("lbhc,l->bhc", torch.stack(layers), weights)
+        return pooled[:, 0]   # CLS token
 
     def forward(
         self,

@@ -28,13 +28,14 @@ data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 8
+  epochs: 10
   batch_size: 16 # 8-16 for modernbert, more for deberta 
-  lr: 1e-5
-  weight_decay_rate: 0.02 # 0.01
+  lr: 7e-6
+  weight_decay_rate: 0.021
+  val_batches: 200
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
-  log_metrics_every_n_steps: 500 # Log metrics every N global training steps (if log_step_metrics is true)
+  log_metrics_every_n_steps: 100 # Log metrics every N global training steps (if log_step_metrics is true)
 
 inference:
   # Default path, can be overridden

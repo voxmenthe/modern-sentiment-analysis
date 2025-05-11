@@ -1,12 +1,9 @@
 from __future__ import annotations # MUST BE AT THE TOP
 
 import sys
-print(f"DEBUG: sys.path in train.py: {sys.path}") # SYSPATH DIAGNOSTIC
 import os
-print(f"DEBUG: Executing src/train.py from: {os.path.abspath(__file__)}") # PATH DIAGNOSTIC
 import argparse
 import math
-import os
 import re
 from pathlib import Path
 from typing import Dict, List
@@ -271,7 +268,6 @@ def train(config_param):
         except Exception as e:
             print(f"Warning: Could not load scheduler state: {e}. Scheduler reinitialized.")
 
-    print("DEBUG: Initializing history object in train.py") # DIAGNOSTIC PRINT
     history = {
         "epoch": [],
         "train_loss": [], "train_accuracy": [], "train_f1": [], "train_roc_auc": [], "train_precision": [], "train_recall": [], "train_mcc": [],
@@ -309,7 +305,12 @@ def train(config_param):
         # Record epoch number (it was previously part of the removed training metrics block)
         history["epoch"].append(epoch)
 
-        metrics = evaluate(model, val_dl, device)
+        # metrics = evaluate(model, val_dl, device) # Old call
+        metrics = evaluate(
+            model, val_dl, device,
+            compute_loss=False,  # As per Ticket 2/3 instruction
+            max_batches=training_config.get("val_batches") # Added: Ticket 2
+        )
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
         # Record validation metrics
@@ -370,7 +371,7 @@ def train(config_param):
     # Ensure output directory for metrics exists (though generate_artifact_name places it in base_output_dir)
     Path(model_config['output_dir']).mkdir(parents=True, exist_ok=True)
 
-    print(f"DEBUG: History object in train.py before saving: {history}") # DIAGNOSTIC PRINT
+
     with open(metrics_file_path, "w") as f:
         json.dump(history, f, indent=4)
     print(f"Metrics history saved to {metrics_file_path}")

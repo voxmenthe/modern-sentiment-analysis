@@ -1,7 +1,12 @@
 from datasets import load_dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data import DataLoader
+import os
 
+
+def add_len(example):
+    example["lengths"] = (example["attention_mask"].sum()).long()
+    return example
 
 def download_and_prepare_datasets(tokenizer: AutoTokenizer, max_length: int = 256) -> DatasetDict:
     """Download IMDB via HF Datasets and tokenize"""
@@ -17,12 +22,24 @@ def download_and_prepare_datasets(tokenizer: AutoTokenizer, max_length: int = 25
 
 
 def create_dataloaders(dset: DatasetDict, tokenizer: AutoTokenizer, batch_size: int = 16):
-    def add_len(example):
-        example["lengths"] = (example["attention_mask"].sum()).long()
-        return example
-
     dset = dset.map(add_len)
-    collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors="pt")
-    train_dl = DataLoader(dset["train"], batch_size=batch_size, shuffle=True, collate_fn=collator)
-    val_dl = DataLoader(dset["test"], batch_size=batch_size, shuffle=False, collate_fn=collator)  # IMDB lacks val → use test
+    collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8, return_tensors="pt")
+    train_dl = DataLoader(
+        dset["train"], 
+        batch_size=batch_size, 
+        shuffle=True, 
+        collate_fn=collator,
+        persistent_workers=True,
+        num_workers=os.cpu_count() - 1 if os.cpu_count() > 1 else 0,
+        prefetch_factor=2
+    )
+    val_dl = DataLoader(
+        dset["test"], 
+        batch_size=batch_size, 
+        shuffle=False, 
+        collate_fn=collator,
+        persistent_workers=True,
+        num_workers=os.cpu_count() - 1 if os.cpu_count() > 1 else 0,
+        prefetch_factor=2
+    ) 
     return train_dl, val_dl
