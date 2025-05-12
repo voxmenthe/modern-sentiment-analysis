@@ -307,10 +307,19 @@ def train(config_param):
         history["epoch"].append(epoch)
 
         # metrics = evaluate(model, val_dl, device) # Old call
+        val_batches_config_value = training_config.get("val_batches")
+        max_batches_for_eval = None
+        if val_batches_config_value is not None:
+            try:
+                max_batches_for_eval = int(val_batches_config_value)
+            except (ValueError, TypeError): # Catch if it's not int-convertible
+                print(f"Warning: 'val_batches' from config ('{val_batches_config_value}') is not a valid integer. Evaluation will use all batches.")
+                # max_batches_for_eval remains None, so all batches will be used by evaluate
+
         metrics = evaluate(
             model, val_dl, device,
             compute_loss=False,  # As per Ticket 2/3 instruction
-            max_batches=training_config.get("val_batches") # Added: Ticket 2
+            max_batches=max_batches_for_eval # Added: Ticket 2; now using safely converted value
         )
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
