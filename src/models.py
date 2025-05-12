@@ -101,11 +101,12 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
     ):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        need_hidden = self.pooling_strategy in {"weighted_layer", "cls_weighted_concat"}
         bert_outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
             return_dict=return_dict,
-            output_hidden_states=self.config.output_hidden_states # Controlled by train.py
+            output_hidden_states=need_hidden # Controlled by train.py
         )
 
         last_hidden_state = bert_outputs[0] # Or bert_outputs.last_hidden_state
@@ -247,12 +248,13 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # Pass token_type_ids to DeBERTa model
+        need_hidden = self.pooling_strategy in {"weighted_layer", "cls_weighted_concat"}
         deberta_outputs = self.deberta(
             input_ids,
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,
             return_dict=return_dict,
-            output_hidden_states=self.config.output_hidden_states
+            output_hidden_states=need_hidden
         )
 
         last_hidden_state = deberta_outputs.last_hidden_state # Access last_hidden_state directly

@@ -290,7 +290,8 @@ def train(config_param):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-            if step % 100 == 0:
+            if training_config.get("log_step_metrics", True) and \
+               step % training_config.get("log_metrics_every_n_steps", 1000) == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
         # Calculate and store average training loss for the epoch

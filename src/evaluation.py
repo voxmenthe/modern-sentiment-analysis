@@ -76,11 +76,15 @@ def evaluate(model, dataloader, device, *,
     recall = recall_score(all_labels, all_preds, average='weighted', zero_division=0)
     mcc = matthews_corrcoef(all_labels, all_preds)
 
-    try:
-        roc_auc = roc_auc_score(all_labels, all_probs_for_auc)
-    except ValueError as e:
-        print(f"Could not calculate AUC-ROC: {e}. Labels: {list(set(all_labels))[:10]}. Probs example: {all_probs_for_auc[:5]}. Setting to 0.0")
+    if len(set(all_labels)) < 2:
+        print(f"Warning: Only one class present in y_true ({len(all_labels)} samples processed). AUC will be set to 0.0. MCC might also be 0.0.")
         roc_auc = 0.0
+    else:
+        try:
+            roc_auc = roc_auc_score(all_labels, all_probs_for_auc)
+        except ValueError as e:
+            print(f"Could not calculate AUC-ROC: {e}. Labels: {list(set(all_labels))[:10]}. Probs example: {all_probs_for_auc[:5]}. Setting to 0.0")
+            roc_auc = 0.0
 
     return {
         'loss': avg_loss,
