@@ -31,7 +31,8 @@ class SentimentWeightedLoss(nn.Module):
             # If base_loss on empty input is empty tensor, mean is nan. So return 0.0 is safer.
             return torch.tensor(0.0, device=logits.device, requires_grad=logits.requires_grad)
         
-        length_weight = torch.sqrt(lengths.float()) / math.sqrt(lengths.max().item())
+        max_len = lengths.float().max()
+        length_weight = torch.sqrt(lengths.float()) / (max_len.sqrt() + 1e-8)
         length_weight = length_weight.clamp(self.min_len_weight_sqrt, 1.0) # Clamp to avoid extreme weights
 
         weights = confidence_weight * length_weight
@@ -127,14 +128,12 @@ class SentimentFocalLoss(nn.Module):
 
         # 5. Length Weighting (longer reviews potentially weighted more)
         lengths_flat = lengths.view(-1).float()
-        max_len_in_batch = lengths_flat.max().item()
-        
-        if max_len_in_batch == 0: # Edge case: if all reviews in batch have 0 length
+        max_len_in_batch = lengths_flat.max()
+        if max_len_in_batch == 0:
             length_w = torch.ones_like(lengths_flat)
         else:
-            # Normalize by sqrt of max length in the current batch. Add epsilon for stability.
-            length_w = torch.sqrt(lengths_flat) / (math.sqrt(max_len_in_batch) + 1e-8)
-            length_w = torch.clamp(length_w, 0.0, 1.0) # Ensure weights are capped at 1
+            length_w = torch.sqrt(lengths_flat) / (max_len_in_batch.sqrt() + 1e-8)
+            length_w = torch.clamp(length_w, 0.0, 1.0)
 
         # 6. Combine External Weights (Confidence and Length)
         # These weights are applied ON TOP of the focal-modulated loss terms.
