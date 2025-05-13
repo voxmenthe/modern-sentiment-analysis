@@ -63,6 +63,13 @@ Run the training script from the root directory:
 python src/train.py
 ```
 
+or 
+
+```bash
+python -m src.train
+```
+
+
 Other examples:
 
 ```bash
@@ -129,6 +136,8 @@ To run the visualization script, run the following command:
 ```bash
 python src/visualization.py --metrics-file <path_to_metrics_json> --checkpoint <path_to_checkpoint> --config <path_to_config> --output_dir <path_to_output_dir>
 ```
+
+(or `python -m src.visualization`)
 
 **Note that <path_to_metrics_json> is needed for most of the visualizations and <path_to_checkpoint> is needed for the confusion matrix.**
 

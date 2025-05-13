@@ -53,9 +53,13 @@ def plot_metrics(config: dict, metrics_path: str, output_dir: Path = Path("plots
     for plot_key, plot_config in plot_types.items():
         plt.figure(figsize=(10, 6))
         if plot_config["train_key"] in history:
-            plt.plot(epochs_data, history.get(plot_config["train_key"]), label=f'Train {plot_config["label"]}')
+            train_data = history.get(plot_config["train_key"])
+            if train_data: # Check if the list is not empty
+                plt.plot(epochs_data, train_data, label=f'Train {plot_config["label"]}')
         if plot_config["val_key"] in history:
-            plt.plot(epochs_data, history.get(plot_config["val_key"]), label=f'Val {plot_config["label"]}')
+            val_data = history.get(plot_config["val_key"])
+            if val_data: # Check if the list is not empty
+                plt.plot(epochs_data, val_data, label=f'Val {plot_config["label"]}')
         plt.xlabel('Epoch')
         plt.ylabel(plot_config["label"])
         plt.title(f'{plot_config["label"]} {plot_config["title_suffix"]}')

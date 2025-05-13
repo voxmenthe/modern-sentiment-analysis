@@ -11,6 +11,9 @@ poetry lock
 # Install dependencies and the project
 poetry install
 
+# Set the TOKENIZERS_PARALLELISM environment variable to avoid warnings
+export TOKENIZERS_PARALLELISM=true
+
 # Create and install the IPython kernel for the project
 python -m ipykernel install --user --name=modern-sentiment-analysis --display-name "Modern Sentiment Analysis" # install globally outside of poetry
 

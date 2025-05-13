@@ -94,7 +94,7 @@ def train(config_param):
         print("Loading pre-trained base DebertaV2Model...")
         base_deberta_model = DebertaV2Model.from_pretrained(
             model_config['name'],
-            config=deberta_base_config 
+            config=deberta_base_config
         )
 
         # 3. Instantiate the custom DebertaForSentiment model wrapper using the full config
@@ -285,7 +285,7 @@ def train(config_param):
 
             outputs = model(**current_batch_for_model)
             loss = outputs.loss
-            total_loss += loss.item()
+            total_loss += loss.detach()  # Accumulate on-device
             loss.backward()
             optimizer.step()
             lr_scheduler.step()
@@ -296,7 +296,7 @@ def train(config_param):
 
         # Calculate and store average training loss for the epoch
         if len(train_dl) > 0:
-            avg_epoch_train_loss = total_loss / len(train_dl)
+            avg_epoch_train_loss = total_loss.cpu().item() / len(train_dl)  # Only sync here
             history["train_loss"].append(avg_epoch_train_loss)
         elif total_loss > 0: # train_dl was empty, but loss was accumulated (should not happen in normal run)
              history["train_loss"].append(float('nan'))
