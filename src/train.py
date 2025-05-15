@@ -33,7 +33,7 @@ from torch.amp import autocast, GradScaler
 from src.utils import generate_artifact_name
 
 torch.set_float32_matmul_precision('high')
-torch._dynamo.config.capture_scalar_outputs = True
+#torch._dynamo.config.capture_scalar_outputs = True # I think this breaks things
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
