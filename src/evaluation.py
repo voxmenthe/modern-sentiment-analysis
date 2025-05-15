@@ -1,6 +1,6 @@
 import torch
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 
 def evaluate(model, dataloader, device):
@@ -38,7 +38,7 @@ def evaluate(model, dataloader, device):
                 model_inputs['lengths'] = lengths
 
             if use_cuda:
-                with autocast():
+                with autocast('cuda'):
                     outputs = model(**model_inputs)
             else:
                 outputs = model(**model_inputs)

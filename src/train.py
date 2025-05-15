@@ -29,9 +29,11 @@ from src.data_processing import download_and_prepare_datasets, create_dataloader
 from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler, 
+from torch.amp import autocast
 from src.utils import generate_artifact_name
 
+torch.set_float32_matmul_precision('high')
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -285,11 +287,10 @@ def train(config_param):
         for step, batch in enumerate(train_dl, 1):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
-            lr_scheduler.step()
             optimizer.zero_grad(set_to_none=True)
 
             if use_cuda:
-                with autocast():
+                with autocast('cuda'):
                     outputs = model(**batch)
                     loss = outputs.loss
 
@@ -301,6 +302,8 @@ def train(config_param):
                 loss = outputs.loss
                 loss.backward()
                 optimizer.step()
+
+            lr_scheduler.step()
 
             total_loss += loss.item()
             if step % 100 == 0:

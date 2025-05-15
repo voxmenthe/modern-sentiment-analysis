@@ -85,7 +85,7 @@ class SentimentInference:
         inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
         with torch.no_grad():
             if use_cuda:
-                with autocast():
+                with autocast('cuda'):
                     outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
             else:
                 outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
