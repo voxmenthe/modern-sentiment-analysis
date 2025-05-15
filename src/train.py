@@ -29,11 +29,11 @@ from src.data_processing import download_and_prepare_datasets, create_dataloader
 from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
-from torch.cuda.amp import GradScaler
-from torch.amp import autocast
+from torch.amp import autocast, GradScaler
 from src.utils import generate_artifact_name
 
 torch.set_float32_matmul_precision('high')
+torch._dynamo.config.capture_scalar_outputs = True
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -161,7 +161,7 @@ def train(config_param):
     start_epoch = 1
 
     scaler = None
-    if use_cuda: scaler = GradScaler()
+    if use_cuda: scaler = GradScaler('cuda')
 
     resume_checkpoint_path = training_config.get('resume_from_checkpoint')
     optimizer_state_to_load = None

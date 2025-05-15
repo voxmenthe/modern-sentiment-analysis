@@ -28,7 +28,7 @@ data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 32
+  epochs: 128
   batch_size: 16 # 8-16 for modernbert, more for deberta 
   lr: 7e-6
   weight_decay_rate: 0.019 # 0.01
