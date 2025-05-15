@@ -40,10 +40,10 @@ torch.set_float32_matmul_precision('high')
 
 if use_cuda:
     torch._dynamo.config.capture_scalar_outputs = True
-    torch._inductor.config.triton.cudagraphs = True
-    torch._inductor.config.epilogue_fusion = True
-    torch._inductor.config.coordinate_descent_tuning = True
-    torch._inductor.config.shape_padding = True    
+    #torch._inductor.config.triton.cudagraphs = True
+    # torch._inductor.config.epilogue_fusion = True
+    # torch._inductor.config.coordinate_descent_tuning = True
+    # torch._inductor.config.shape_padding = True 
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -155,7 +155,8 @@ def train(config_param):
 
     model.to(device)
 
-    if use_cuda: model = torch.compile(model, mode="max-autotune")
+    #if use_cuda: model = torch.compile(model, mode="max-autotune")
+    if use_cuda: model = torch.compile(model)
 
     optimizer = AdamW(
         model.parameters(), 
