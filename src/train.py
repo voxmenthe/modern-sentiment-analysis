@@ -29,7 +29,7 @@ from src.data_processing import download_and_prepare_datasets, create_dataloader
 from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
-from torch.cuda.amp import GradScaler, 
+from torch.cuda.amp import GradScaler
 from torch.amp import autocast
 from src.utils import generate_artifact_name
 
