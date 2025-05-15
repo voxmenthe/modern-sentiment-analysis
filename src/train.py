@@ -29,6 +29,7 @@ from src.data_processing import download_and_prepare_datasets, create_dataloader
 from src.evaluation import evaluate
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR
+from torch.cuda.amp import GradScaler, autocast
 from src.utils import generate_artifact_name
 
 
@@ -41,7 +42,7 @@ def load_config(config_path="src/config.yaml"):
 
 def train(config_param): 
     config = config_param 
-    
+    use_cuda = torch.cuda.is_available()
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -139,6 +140,8 @@ def train(config_param):
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
     model.to(device)
+    if use_cuda:
+        model = torch.compile(model)
 
     optimizer = AdamW(
         model.parameters(), 
@@ -154,6 +157,9 @@ def train(config_param):
 
     best_f1 = 0.0
     start_epoch = 1
+
+    scaler = None
+    if use_cuda: scaler = GradScaler()
 
     resume_checkpoint_path = training_config.get('resume_from_checkpoint')
     optimizer_state_to_load = None
@@ -277,17 +283,26 @@ def train(config_param):
         model.train()
         total_loss = 0.0
         for step, batch in enumerate(train_dl, 1):
-            batch = {k: v.to(device) for k, v in batch.items()}
+            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
-            current_batch_for_model = batch
-
-            outputs = model(**current_batch_for_model)
-            loss = outputs.loss
-            total_loss += loss.item()
-            loss.backward()
-            optimizer.step()
             lr_scheduler.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
+
+            if use_cuda:
+                with autocast():
+                    outputs = model(**batch)
+                    loss = outputs.loss
+
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+
+            total_loss += loss.item()
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 

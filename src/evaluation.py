@@ -1,5 +1,6 @@
 import torch
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
+from torch.cuda.amp import autocast
 
 
 def evaluate(model, dataloader, device):
@@ -9,12 +10,14 @@ def evaluate(model, dataloader, device):
     all_probs_for_auc = [] 
     total_loss = 0
 
+    use_cuda = device.type == 'cuda'
+
     with torch.no_grad():
         for batch in dataloader:
             # Move batch to device, ensure all model inputs are covered
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['labels'].to(device)
+            input_ids = batch['input_ids'].to(device, non_blocking=True)
+            attention_mask = batch['attention_mask'].to(device, non_blocking=True)
+            labels = batch['labels'].to(device, non_blocking=True)
             lengths = batch.get('lengths') # Get lengths from batch
             if lengths is None:
                 # Fallback or error if lengths are expected but not found
@@ -23,7 +26,7 @@ def evaluate(model, dataloader, device):
                 # However, the error clearly states it's needed when labels are specified.
                 pass # Or handle error: raise ValueError("'lengths' not found in batch, but required by model")
             else:
-                lengths = lengths.to(device) # Move to device if found
+                lengths = lengths.to(device, non_blocking=True) # Move to device if found
 
             # Pass all necessary parts of the batch to the model
             model_inputs = {
@@ -33,8 +36,13 @@ def evaluate(model, dataloader, device):
             }
             if lengths is not None:
                 model_inputs['lengths'] = lengths
+
+            if use_cuda:
+                with autocast():
+                    outputs = model(**model_inputs)
+            else:
+                outputs = model(**model_inputs)
             
-            outputs = model(**model_inputs)
             loss = outputs.loss
             logits = outputs.logits
 

@@ -5,7 +5,9 @@ from transformers import ModernBertConfig
 from typing import Dict, Any
 import yaml
 import os
+from torch.cuda.amp import autocast
 
+use_cuda = torch.cuda.is_available()
 
 class SentimentInference:
     def __init__(self, config_path: str = "config.yaml"):
@@ -15,6 +17,13 @@ class SentimentInference:
         
         model_cfg = config.get('model', {})
         inference_cfg = config.get('inference', {})
+
+        if use_cuda:
+            self.device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+        else:
+            self.device = torch.device('cpu')
         
         # Path to the .pt model weights file
         model_weights_path = inference_cfg.get('model_path', 
@@ -56,7 +65,7 @@ class SentimentInference:
         
         print(f"Loading model weights from local checkpoint: {model_weights_path}")
         # Load the entire checkpoint dictionary first
-        checkpoint = torch.load(model_weights_path, map_location=torch.device('cpu'))
+        checkpoint = torch.load(model_weights_path, map_location=self.device)
         
         # Extract the model_state_dict from the checkpoint
         # This handles the case where the checkpoint saves more than just the model weights (e.g., optimizer state, epoch)
@@ -67,13 +76,19 @@ class SentimentInference:
             model_state_to_load = checkpoint
             
         self.model.load_state_dict(model_state_to_load)
+        self.model.to(self.device)
         self.model.eval()
         print("Model loaded successfully.")
         
     def predict(self, text: str) -> Dict[str, Any]:
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length)
+        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_length, padding=True)
+        inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
         with torch.no_grad():
-            outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+            if use_cuda:
+                with autocast():
+                    outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
+            else:
+                outputs = self.model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'])
         logits = outputs["logits"]
         prob = torch.sigmoid(logits).item()
         return {"sentiment": "positive" if prob > 0.5 else "negative", "confidence": prob}
