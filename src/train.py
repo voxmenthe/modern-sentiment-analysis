@@ -29,7 +29,8 @@ from transformers import (
 from sklearn.metrics import accuracy_score, f1_score
 from src.data_processing import download_and_prepare_datasets, create_dataloaders
 from src.evaluation import evaluate
-from torch.optim import AdamW
+#from torch.optim import AdamW
+from heavyball import ForeachAdamW, ForeachMuon
 from torch.optim.lr_scheduler import LinearLR
 from torch.amp import autocast, GradScaler
 from src.utils import generate_artifact_name
@@ -158,11 +159,17 @@ def train(config_param):
     #if use_cuda: model = torch.compile(model, mode="max-autotune")
     if use_cuda: model = torch.compile(model)
 
-    optimizer = AdamW(
+    # optimizer = AdamW(
+    #     model.parameters(), 
+    #     lr=float(training_config['lr']), 
+    #     weight_decay=float(training_config['weight_decay_rate'])
+    # )
+    optimizer = ForeachMuon(
         model.parameters(), 
         lr=float(training_config['lr']), 
         weight_decay=float(training_config['weight_decay_rate'])
     )
+
     lr_scheduler = LinearLR(
         optimizer,
         start_factor=1.0,

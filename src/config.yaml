@@ -27,11 +27,13 @@ num_weighted_layers: 4 # Number of top BERT layers to use
 data:
   # No specific data paths needed as we use HF datasets at the moment
 
+# Next try: switch optimizer to Muon (done in code - need to add to config)
+
 training:
-  epochs: 12  
+  epochs: 16 
   batch_size: 16 # 8-16 for modernbert, more for deberta 
-  lr: 3e-6 # Learning rate
-  weight_decay_rate: 0.011 # 0.01
+  lr: 4e-6 # Learning rate
+  weight_decay_rate: 0.014 # 0.01
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
   log_metrics_every_n_steps: 500 # Log metrics every N global training steps (if log_step_metrics is true)
