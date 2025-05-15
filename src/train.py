@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import math
+import time
 import os
 import re
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Dict, List
 import yaml
 import json
 import datetime
+import multiprocessing
 
 import torch
 import torch.nn as nn
@@ -32,8 +34,16 @@ from torch.optim.lr_scheduler import LinearLR
 from torch.amp import autocast, GradScaler
 from src.utils import generate_artifact_name
 
+use_cuda = torch.cuda.is_available()
+
 torch.set_float32_matmul_precision('high')
-#torch._dynamo.config.capture_scalar_outputs = True # I think this breaks things
+
+if use_cuda:
+    torch._dynamo.config.capture_scalar_outputs = True
+    torch._inductor.config.triton.cudagraphs = True
+    torch._inductor.config.epilogue_fusion = True
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.shape_padding = True    
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -141,9 +151,11 @@ def train(config_param):
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
+    if use_cuda: model = model.to(memory_format=torch.channels_last)
+
     model.to(device)
-    if use_cuda:
-        model = torch.compile(model)
+
+    if use_cuda: model = torch.compile(model, mode="max-autotune")
 
     optimizer = AdamW(
         model.parameters(), 
@@ -282,6 +294,7 @@ def train(config_param):
 
     # The loop runs from determined start_epoch up to the total_epochs from the active config
     for epoch in range(start_epoch, training_config['epochs'] + 1):
+        epoch_start_time = time.time()
         model.train()
         total_loss = 0.0
         for step, batch in enumerate(train_dl, 1):
@@ -297,13 +310,13 @@ def train(config_param):
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
+                lr_scheduler.step()
             else:
                 outputs = model(**batch)
                 loss = outputs.loss
                 loss.backward()
                 optimizer.step()
-
-            lr_scheduler.step()
+                lr_scheduler.step()
 
             total_loss += loss.item()
             if step % 100 == 0:
@@ -322,7 +335,8 @@ def train(config_param):
         history["train_recall"].append(train_metrics["recall"])
         history["train_mcc"].append(train_metrics["mcc"])
 
-        metrics = evaluate(model, val_dl, device)
+        metrics = evaluate(model, val_dl, device)     
+        
         print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
         # Record validation metrics
@@ -333,6 +347,15 @@ def train(config_param):
         history["val_precision"].append(metrics["precision"])
         history["val_recall"].append(metrics["recall"])
         history["val_mcc"].append(metrics["mcc"])
+        
+        # Print elapsed time per epoch
+        epoch_end_time = time.time()
+        epoch_duration = epoch_end_time - epoch_start_time
+        hours, remainder = divmod(epoch_duration, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        print(f"Epoch {epoch} completed in {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d} (HH:MM:SS)")
+
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
             
@@ -363,6 +386,7 @@ def train(config_param):
             }
             torch.save(checkpoint_data, ckpt_path)
             print(f"✨ Saved new best model to {ckpt_path}")
+
 
     # After training, save metrics history
     # Generate metrics filename using the new utility function
@@ -414,5 +438,18 @@ if __name__ == "__main__":
     config['model']['max_length'] = args.max_length or config['model']['max_length']
     config['model']['output_dir'] = args.output_dir or config['model']['output_dir']
     config['training']['resume_from_checkpoint'] = args.resume_from_checkpoint or config['training'].get('resume_from_checkpoint')
+
+    # Set number of threads based on available CPU cores
+    num_cores = multiprocessing.cpu_count()
+    torch.set_num_threads(num_cores)
+    torch.set_num_interop_threads(min(4, num_cores))
+    
+    # For CUDA operations
+    if torch.cuda.is_available():
+        # Enable TF32 precision (on Ampere GPUs)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        # Set fastest algorithm
+        torch.backends.cudnn.benchmark = True
     
     train(config)

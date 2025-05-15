@@ -23,6 +23,22 @@ def create_dataloaders(dset: DatasetDict, tokenizer: AutoTokenizer, batch_size: 
 
     dset = dset.map(add_len)
     collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors="pt")
-    train_dl = DataLoader(dset["train"], batch_size=batch_size, shuffle=True, collate_fn=collator)
-    val_dl = DataLoader(dset["test"], batch_size=batch_size, shuffle=False, collate_fn=collator)  # IMDB lacks val → use test
+    train_dl = DataLoader(
+        dset["train"], 
+        batch_size=batch_size, 
+        shuffle=True,
+        collate_fn=collator,
+        num_workers=58,
+        pin_memory=True,
+        persistent_workers=True
+        )
+    val_dl = DataLoader(
+        dset["test"], 
+        batch_size=batch_size, 
+        shuffle=False, 
+        collate_fn=collator,
+        num_workers=58,
+        pin_memory=True,
+        persistent_workers=True
+        )
     return train_dl, val_dl

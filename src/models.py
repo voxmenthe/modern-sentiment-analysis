@@ -77,12 +77,18 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
         self.post_init() # Initialize weights and apply final processing
 
     def _mean_pool(self, last_hidden_state, attention_mask):
-        if attention_mask is None:
-            attention_mask = torch.ones_like(last_hidden_state[:, :, 0]) # Assuming first dim of last hidden state is token ids
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        return sum_embeddings / sum_mask
+        # if attention_mask is None:
+        #     attention_mask = torch.ones_like(last_hidden_state[:, :, 0]) # Assuming first dim of last hidden state is token ids
+        # input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        # sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+        # sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+        # return sum_embeddings / sum_mask
+
+        # More efficient mean pooling implementation
+        mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
+        sum_hidden = torch.sum(hidden_states * mask_expanded, dim=1)
+        sum_mask = torch.clamp(mask_expanded.sum(dim=1), min=1e-9)
+        return sum_hidden / sum_mask
 
     def _weighted_layer_pool(self, all_hidden_states):
         # all_hidden_states includes embeddings + output of each layer.

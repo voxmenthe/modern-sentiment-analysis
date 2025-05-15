@@ -30,8 +30,8 @@ data:
 training:
   epochs: 12  
   batch_size: 16 # 8-16 for modernbert, more for deberta 
-  lr: 2e-5 # Learning rate
-  weight_decay_rate: 0.03 # 0.01
+  lr: 3e-6 # Learning rate
+  weight_decay_rate: 0.011 # 0.01
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
   log_metrics_every_n_steps: 500 # Log metrics every N global training steps (if log_step_metrics is true)
@@ -41,6 +41,7 @@ inference:
   model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" # available in the HF space files - can be downloaded from there see readme
   # Using the same max_length as training for consistency
   max_length: 880 # 256
+
 
 
 # "answerdotai/ModernBERT-base"
