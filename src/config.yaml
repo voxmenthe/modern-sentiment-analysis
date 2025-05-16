@@ -9,8 +9,8 @@ model:
       label_smoothing_epsilon: 0.1   # Default: 0.05. Amount of label smoothing.
 
   output_dir: "checkpoints"
-  max_length: 880 # Max context length in tokens, any sample longer than this will be truncated
-  dropout: 0.1 # This will be applied to deberta_config.hidden_dropout_prob
+  max_length: 960 # Max context length in tokens, any sample longer than this will be truncated
+  dropout: 0.12 # This will be applied to deberta_config.hidden_dropout_prob
 
 # --- Pooling Strategy Options --- #
 # Options: "cls", "mean", "cls_mean_concat", "weighted_layer", "cls_weighted_concat"
@@ -30,17 +30,18 @@ data:
 training:
   epochs: 8
   batch_size: 16 # 8-16 for modernbert, more for deberta 
-  lr: 1e-5
-  weight_decay_rate: 0.02 # 0.01
+  lr: 4e-6
+  weight_decay_rate: 0.015
+  val_batches: None #200
   resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
-  log_metrics_every_n_steps: 500 # Log metrics every N global training steps (if log_step_metrics is true)
+  log_metrics_every_n_steps: 200 # Log metrics every N global training steps (if log_step_metrics is true)
 
 inference:
   # Default path, can be overridden
   model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" # available in the HF space files - can be downloaded from there see readme
   # Using the same max_length as training for consistency
-  max_length: 880 # 256
+  max_length: 960 # 256
 
 
 # "answerdotai/ModernBERT-base"
