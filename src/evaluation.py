@@ -1,80 +1,106 @@
 import torch
+import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 from torch.amp import autocast
 
 
-def evaluate(model, dataloader, device):
+def evaluate(model, dataloader, device, compute_loss=True):
+    """
+    Evaluate model on the provided dataloader.
+
+    Args:
+        model: The model to evaluate
+        dataloader: DataLoader with evaluation data
+        device: Device to run evaluation on
+        compute_loss: Whether to compute loss (can be skipped for faster evaluation)
+    """
     model.eval()
     all_preds = []
     all_labels = []
-    all_probs_for_auc = [] 
-    total_loss = 0
+    all_probs_for_auc = []
+    total_loss = 0.0
 
     use_cuda = device.type == 'cuda'
 
-    with torch.no_grad():
+    # Use inference_mode instead of no_grad for better performance
+    with torch.inference_mode():
         for batch in dataloader:
-            # Move batch to device, ensure all model inputs are covered
-            input_ids = batch['input_ids'].to(device, non_blocking=True)
-            attention_mask = batch['attention_mask'].to(device, non_blocking=True)
-            labels = batch['labels'].to(device, non_blocking=True)
-            lengths = batch.get('lengths') # Get lengths from batch
-            if lengths is None:
-                # Fallback or error if lengths are expected but not found
-                # For now, let's raise an error if using weighted loss that needs it
-                # Or, if your model can run without it for some pooling strategies, handle accordingly
-                # However, the error clearly states it's needed when labels are specified.
-                pass # Or handle error: raise ValueError("'lengths' not found in batch, but required by model")
-            else:
-                lengths = lengths.to(device, non_blocking=True) # Move to device if found
+            # Move entire batch to device at once with non_blocking=True
+            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
-            # Pass all necessary parts of the batch to the model
-            model_inputs = {
-                'input_ids': input_ids,
-                'attention_mask': attention_mask,
-                'labels': labels
-            }
-            if lengths is not None:
-                model_inputs['lengths'] = lengths
+            # Skip loss computation if not needed (faster evaluation)
+            if not compute_loss and 'labels' in batch:
+                labels_backup = batch['labels'].clone()  # Save for metrics
+                model_inputs = {k: v for k, v in batch.items() if k != 'labels'}
 
-            if use_cuda:
-                with autocast('cuda'):
+                if use_cuda:
+                    with autocast('cuda'):
+                        outputs = model(**model_inputs)
+                else:
                     outputs = model(**model_inputs)
+
+                labels = labels_backup
             else:
-                outputs = model(**model_inputs)
-            
-            loss = outputs.loss
+                # Regular forward pass with loss computation
+                if use_cuda:
+                    with autocast('cuda'):
+                        outputs = model(**batch)
+                else:
+                    outputs = model(**batch)
+
+                if compute_loss and hasattr(outputs, 'loss'):
+                    # Avoid unnecessary CPU-GPU sync with item()
+                    total_loss += outputs.loss.detach()
+
+                labels = batch['labels']
+
             logits = outputs.logits
 
-            total_loss += loss.item()
-            
-            if logits.shape[1] > 1: 
+            # Compute predictions efficiently
+            if logits.shape[1] > 1:
                 preds = torch.argmax(logits, dim=1)
-            else: 
-                preds = (torch.sigmoid(logits) > 0.5).long() 
-            all_preds.extend(preds.cpu().numpy())
-            
-            all_labels.extend(labels.cpu().numpy()) 
+                probs = torch.softmax(logits, dim=1)[:, 1]
+            else:
+                preds = (torch.sigmoid(logits) > 0.5).long()
+                probs = torch.sigmoid(logits).squeeze()
 
-            if logits.shape[1] > 1: 
-                probs = torch.softmax(logits, dim=1)[:, 1] 
-                all_probs_for_auc.extend(probs.cpu().numpy())
-            else: 
-                probs = torch.sigmoid(logits) 
-                all_probs_for_auc.extend(probs.squeeze().cpu().numpy())
+            # Collect results - move to CPU in batches
+            all_preds.append(preds.cpu())
+            all_labels.append(labels.cpu())
+            all_probs_for_auc.append(probs.cpu())
 
-    avg_loss = total_loss / len(dataloader)
-    accuracy = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
-    precision = precision_score(all_labels, all_preds, average='weighted', zero_division=0)
-    recall = recall_score(all_labels, all_preds, average='weighted', zero_division=0)
-    mcc = matthews_corrcoef(all_labels, all_preds)
+    # Concatenate all tensors before moving to numpy for better efficiency
+    all_preds_tensor = torch.cat(all_preds, dim=0)
+    all_labels_tensor = torch.cat(all_labels, dim=0)
+    all_probs_tensor = torch.cat(all_probs_for_auc, dim=0)
 
+    # Convert to numpy arrays once
+    all_preds_np = all_preds_tensor.numpy()
+    all_labels_np = all_labels_tensor.numpy()
+    all_probs_np = all_probs_tensor.numpy()
+
+    # Calculate metrics
+    accuracy = accuracy_score(all_labels_np, all_preds_np)
+    f1 = f1_score(all_labels_np, all_preds_np, average='weighted', zero_division=0)
+    precision = precision_score(all_labels_np, all_preds_np, average='weighted', zero_division=0)
+    recall = recall_score(all_labels_np, all_preds_np, average='weighted', zero_division=0)
+    mcc = matthews_corrcoef(all_labels_np, all_preds_np)
+
+    # Calculate AUC-ROC
     try:
-        roc_auc = roc_auc_score(all_labels, all_probs_for_auc)
+        roc_auc = roc_auc_score(all_labels_np, all_probs_np)
     except ValueError as e:
-        print(f"Could not calculate AUC-ROC: {e}. Labels: {list(set(all_labels))[:10]}. Probs example: {all_probs_for_auc[:5]}. Setting to 0.0")
+        print(f"Could not calculate AUC-ROC: {e}. Setting to 0.0")
         roc_auc = 0.0
+
+    # Calculate loss if computed
+    if compute_loss:
+        if isinstance(total_loss, torch.Tensor):
+            avg_loss = (total_loss / len(dataloader)).item()
+        else:
+            avg_loss = total_loss / len(dataloader)
+    else:
+        avg_loss = None
 
     return {
         'loss': avg_loss,

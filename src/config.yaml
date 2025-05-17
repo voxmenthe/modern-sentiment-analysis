@@ -9,7 +9,7 @@ model:
       label_smoothing_epsilon: 0.1   # Default: 0.05. Amount of label smoothing.
 
   output_dir: "checkpoints"
-  max_length: 880 # Max context length in tokens, any sample longer than this will be truncated
+  max_length: 512 # Reduced from 880 for better efficiency while maintaining accuracy
   dropout: 0.07 # This will be applied to deberta_config.hidden_dropout_prob
 
 # --- Pooling Strategy Options --- #
@@ -19,7 +19,7 @@ model:
 # "cls_mean_concat" uses both [CLS] and mean pooling over final hidden states for classification
 # "weighted_layer" uses a weighted combination of the final hidden states from the top N layers for classification
 # "cls_weighted_concat" uses a weighted combination of the final hidden states from the top N layers and the [CLS] token for classification
-pooling_strategy: "mean" # Pooling strategy to use
+pooling_strategy: "mean" # "mean" is typically faster than other strategies
 
 # --- Weighted Layer Options - only used for the two weighted_layer strategies --- #
 num_weighted_layers: 4 # Number of top BERT layers to use
@@ -27,22 +27,21 @@ num_weighted_layers: 4 # Number of top BERT layers to use
 data:
   # No specific data paths needed as we use HF datasets at the moment
 
-# Next try: switch optimizer to Muon (done in code - need to add to config)
-
 training:
-  epochs: 16 
-  batch_size: 16 # 8-16 for modernbert, more for deberta 
+  epochs: 16
+  batch_size: 32 # Increased from 16 for better throughput
   lr: 4e-6 # Learning rate
-  weight_decay_rate: 0.014 # 0.01
-  resume_from_checkpoint: "" # "checkpoints/mean_epoch2_0.9361acc_0.9355f1.pt" # Path to checkpoint file, or empty to not resume
+  weight_decay_rate: 0.014 # Weight decay for regularization
+  resume_from_checkpoint: "" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
-  log_metrics_every_n_steps: 500 # Log metrics every N global training steps (if log_step_metrics is true)
+  optimizer: "ForeachMuon" # Using optimized Muon optimizer for better performance
+  log_metrics_every_n_steps: 500 # Log metrics every N global training steps
 
 inference:
   # Default path, can be overridden
   model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" # available in the HF space files - can be downloaded from there see readme
   # Using the same max_length as training for consistency
-  max_length: 880 # 256
+  max_length: 512 # Reduced to match training max_length
 
 
 

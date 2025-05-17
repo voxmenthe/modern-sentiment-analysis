@@ -36,7 +36,7 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
         classifier_input_size = config.hidden_size
         if self.pooling_strategy in ['cls_mean_concat', 'cls_weighted_concat']:
             classifier_input_size = config.hidden_size * 2
-        
+
         # Dropout for features fed into the classifier head
         classifier_dropout_prob = (
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
@@ -77,17 +77,26 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
         self.post_init() # Initialize weights and apply final processing
 
     def _mean_pool(self, last_hidden_state, attention_mask):
-        # if attention_mask is None:
-        #     attention_mask = torch.ones_like(last_hidden_state[:, :, 0]) # Assuming first dim of last hidden state is token ids
-        # input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        # sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-        # sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        # return sum_embeddings / sum_mask
+        """
+        Optimized mean pooling implementation.
 
-        # More efficient mean pooling implementation
-        mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
-        sum_hidden = torch.sum(hidden_states * mask_expanded, dim=1)
-        sum_mask = torch.clamp(mask_expanded.sum(dim=1), min=1e-9)
+        Args:
+            last_hidden_state: Hidden states from the model
+            attention_mask: Attention mask for valid tokens
+
+        Returns:
+            Mean-pooled representation
+        """
+        # Expand attention mask for broadcasting
+        mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).to(last_hidden_state.dtype)
+
+        # Sum the hidden states, weighted by the mask
+        sum_hidden = torch.sum(last_hidden_state * mask_expanded, dim=1)
+
+        # Get the sum of the mask for averaging (with small epsilon to avoid division by zero)
+        sum_mask = mask_expanded.sum(dim=1).clamp(min=1e-9)
+
+        # Return the mean
         return sum_hidden / sum_mask
 
     def _weighted_layer_pool(self, all_hidden_states):
@@ -97,16 +106,16 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
         # num_weighted_layers = 4 -> use layers 9, 10, 11, 12 (indices -4, -3, -2, -1)
         layers_to_weigh = torch.stack(all_hidden_states[-self.num_weighted_layers:], dim=0)
         # layers_to_weigh shape: (num_weighted_layers, batch_size, sequence_length, hidden_size)
-        
+
         # Normalize weights to sum to 1 (softmax or simple division)
         normalized_weights = F.softmax(self.layer_weights, dim=-1)
-        
+
         # Weighted sum across layers
         # Reshape weights for broadcasting: (num_weighted_layers, 1, 1, 1)
         weighted_hidden_states = layers_to_weigh * normalized_weights.view(-1, 1, 1, 1)
         weighted_sum_hidden_states = torch.sum(weighted_hidden_states, dim=0)
         # weighted_sum_hidden_states shape: (batch_size, sequence_length, hidden_size)
-        
+
         # Pool the result (e.g., take [CLS] token of this weighted sum)
         return weighted_sum_hidden_states[:, 0] # Return CLS token of the weighted sum
 
@@ -164,7 +173,7 @@ class ModernBertForSentiment(ModernBertPreTrainedModel):
             loss = self.loss_fct(logits.squeeze(-1), labels, lengths)
 
         if not return_dict:
-            # Ensure 'outputs' from BERT is appropriately handled. If it's a tuple:            
+            # Ensure 'outputs' from BERT is appropriately handled. If it's a tuple:
             bert_model_outputs = bert_outputs[1:] if isinstance(bert_outputs, tuple) else (bert_outputs.hidden_states, bert_outputs.attentions)
             output = (logits,) + bert_model_outputs
             return ((loss,) + output) if loss is not None else output
@@ -203,9 +212,9 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
         classifier_input_size = config.hidden_size
         if self.pooling_strategy in ['cls_mean_concat', 'cls_weighted_concat']:
             classifier_input_size = config.hidden_size * 2
-        
+
         classifier_dropout_prob = (
-            config.classifier_dropout if hasattr(config, 'classifier_dropout') and config.classifier_dropout is not None 
+            config.classifier_dropout if hasattr(config, 'classifier_dropout') and config.classifier_dropout is not None
             else getattr(config, 'hidden_dropout_prob', 0.1) # Fallback for DeBERTa config
         )
         self.features_dropout = nn.Dropout(classifier_dropout_prob)
@@ -241,12 +250,27 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
         self.post_init() # Initialize weights and apply final processing
 
     def _mean_pool(self, last_hidden_state, attention_mask):
-        if attention_mask is None:
-            attention_mask = torch.ones_like(last_hidden_state[:, :, 0])
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        return sum_embeddings / sum_mask
+        """
+        Optimized mean pooling implementation.
+
+        Args:
+            last_hidden_state: Hidden states from the model
+            attention_mask: Attention mask for valid tokens
+
+        Returns:
+            Mean-pooled representation
+        """
+        # Expand attention mask for broadcasting
+        mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).to(last_hidden_state.dtype)
+
+        # Sum the hidden states, weighted by the mask
+        sum_hidden = torch.sum(last_hidden_state * mask_expanded, dim=1)
+
+        # Get the sum of the mask for averaging (with small epsilon to avoid division by zero)
+        sum_mask = mask_expanded.sum(dim=1).clamp(min=1e-9)
+
+        # Return the mean
+        return sum_hidden / sum_mask
 
     def _weighted_layer_pool(self, all_hidden_states):
         layers_to_weigh = torch.stack(all_hidden_states[-self.num_weighted_layers:], dim=0)
@@ -282,7 +306,7 @@ class DebertaForSentiment(DebertaV2PreTrainedModel):
         if self.pooling_strategy == 'cls':
             # DeBERTa's pooler_output can also be used, but for consistency with ModernBERT's 'cls',
             # we take the [CLS] token from the last_hidden_state.
-            # If DebertaV2Model's config has add_pooling_layer=True (default), 
+            # If DebertaV2Model's config has add_pooling_layer=True (default),
             # deberta_outputs.pooler_output is available and is last_hidden_state[:,0] processed by a Linear layer + Tanh.
             # Using last_hidden_state[:,0] directly here for parity with ModernBERT's CLS token usage.
             pooled_features = last_hidden_state[:, 0]

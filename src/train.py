@@ -37,14 +37,17 @@ from src.utils import generate_artifact_name
 
 use_cuda = torch.cuda.is_available()
 
+# Enable high precision matrix multiplication for better performance
 torch.set_float32_matmul_precision('high')
 
+# Enable PyTorch 2.0+ optimizations for CUDA
 if use_cuda:
+    # Enable all PyTorch 2.0+ optimizations
     torch._dynamo.config.capture_scalar_outputs = True
-    #torch._inductor.config.triton.cudagraphs = True
-    # torch._inductor.config.epilogue_fusion = True
-    # torch._inductor.config.coordinate_descent_tuning = True
-    # torch._inductor.config.shape_padding = True 
+    torch._inductor.config.triton.cudagraphs = True
+    torch._inductor.config.epilogue_fusion = True
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.shape_padding = True
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -53,8 +56,8 @@ def load_config(config_path="src/config.yaml"):
     return config
 
 
-def train(config_param): 
-    config = config_param 
+def train(config_param):
+    config = config_param
     use_cuda = torch.cuda.is_available()
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -64,9 +67,9 @@ def train(config_param):
         device = torch.device("cpu")
 
     print(f"Using device: {device}")
-    
+
     model_config = config['model']
-    data_config = config['data'] 
+    data_config = config['data']
     training_config = config['training']
 
     model_type = model_config.get('model_type', 'modernbert') # Get model_type, default to modernbert
@@ -90,7 +93,7 @@ def train(config_param):
         deberta_base_config = DebertaV2Config.from_pretrained(model_config['name'])
         deberta_base_config.num_labels = 1 # For sentiment regression-style output
         deberta_base_config.classifier_dropout = model_config.get('dropout', 0.1) # Use model_config dropout
-        
+
         # Add pooling strategy and weighted layer config
         deberta_base_config.pooling_strategy = model_config.get('pooling_strategy', 'cls')
         deberta_base_config.num_weighted_layers = model_config.get('num_weighted_layers', 4)
@@ -106,7 +109,7 @@ def train(config_param):
         print("Loading pre-trained base DebertaV2Model...")
         base_deberta_model = DebertaV2Model.from_pretrained(
             model_config['name'],
-            config=deberta_base_config 
+            config=deberta_base_config
         )
 
         # 3. Instantiate the custom DebertaForSentiment model wrapper using the full config
@@ -152,21 +155,20 @@ def train(config_param):
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'modernbert' or 'deberta'.")
 
-    if use_cuda: model = model.to(memory_format=torch.channels_last)
+    # Use channels_last memory format for better performance with CUDA
+    if use_cuda:
+        model = model.to(memory_format=torch.channels_last)
 
     model.to(device)
 
-    #if use_cuda: model = torch.compile(model, mode="max-autotune")
-    if use_cuda: model = torch.compile(model)
+    # Compile model with optimized mode for better performance
+    if use_cuda:
+        model = torch.compile(model, mode="reduce-overhead")
 
-    # optimizer = AdamW(
-    #     model.parameters(), 
-    #     lr=float(training_config['lr']), 
-    #     weight_decay=float(training_config['weight_decay_rate'])
-    # )
-    optimizer = ForeachMuon(
-        model.parameters(), 
-        lr=float(training_config['lr']), 
+
+    optimizer = OPTIMIZER(
+        model.parameters(),
+        lr=float(training_config['lr']),
         weight_decay=float(training_config['weight_decay_rate'])
     )
 
@@ -195,7 +197,7 @@ def train(config_param):
         print(f"Resuming training from checkpoint: {resume_checkpoint_path}")
         try:
             checkpoint_content = torch.load(resume_checkpoint_path, map_location=device)
-            
+
             parsed_epoch_from_filename = None
             filename_for_parse = os.path.basename(resume_checkpoint_path)
             match = re.search(r'_epoch(\d+)|[._-]e(\d+)', filename_for_parse, re.IGNORECASE)
@@ -205,17 +207,17 @@ def train(config_param):
 
             if isinstance(checkpoint_content, dict) and 'model_state_dict' in checkpoint_content:
                 print("Checkpoint is new format (dictionary).")
-                
+
                 # Check if checkpoint contains its own config
                 if 'config' in checkpoint_content:
                     print("INFO: Found 'config' in checkpoint. This will be used for the resumed session.")
                     loaded_config_from_checkpoint = checkpoint_content['config']
                     config = loaded_config_from_checkpoint # Override current config with checkpoint's config
-                    
+
                     # Restore the current session's output_dir if it was set, allowing override
                     if current_session_output_dir:
                         config['model']['output_dir'] = current_session_output_dir
-                    
+
                     # Clear the resume_from_checkpoint path from the now-active config
                     # This resume operation has been 'consumed'. Future saves of this session should
                     # not try to re-resume from this same old checkpoint path
@@ -230,7 +232,7 @@ def train(config_param):
                 optimizer_state_to_load = checkpoint_content.get('optimizer_state_dict')
                 scheduler_state_to_load = checkpoint_content.get('scheduler_state_dict')
                 best_f1 = checkpoint_content.get('best_f1', best_f1) # Update best_f1 if present
-                
+
                 epoch_from_data = checkpoint_content.get('epoch')
                 if epoch_from_data is not None:
                     start_epoch = epoch_from_data + 1
@@ -263,14 +265,14 @@ def train(config_param):
 
     # Re-derive config sections from the potentially updated 'config' object
     model_config = config['model']
-    data_config = config['data'] 
+    data_config = config['data']
     training_config = config['training']
-    
+
     # From here, use model_config, data_config, training_config
 
-    optimizer = AdamW(
-        model.parameters(), 
-        lr=float(training_config['lr']), 
+    optimizer = OPTIMIZER(
+        model.parameters(),
+        lr=float(training_config['lr']),
         weight_decay=float(training_config['weight_decay_rate'])
     )
     lr_scheduler = LinearLR(
@@ -330,12 +332,12 @@ def train(config_param):
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
-        # Compute and log training metrics
-        train_metrics = evaluate(model, train_dl, device)
+        # Compute and log training metrics - compute_loss=True for training metrics
+        train_metrics = evaluate(model, train_dl, device, compute_loss=False)
         print(f"Epoch {epoch} train – Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
               f"AUC: {train_metrics['roc_auc']:.4f}, Precision: {train_metrics['precision']:.4f}, Recall: {train_metrics['recall']:.4f}, MCC: {train_metrics['mcc']:.4f}")
         history["epoch"].append(epoch)
-        history["train_loss"].append(train_metrics["loss"])
+        history["train_loss"].append(total_loss / len(train_dl))
         history["train_accuracy"].append(train_metrics["accuracy"])
         history["train_f1"].append(train_metrics["f1"])
         history["train_roc_auc"].append(train_metrics["roc_auc"])
@@ -343,9 +345,12 @@ def train(config_param):
         history["train_recall"].append(train_metrics["recall"])
         history["train_mcc"].append(train_metrics["mcc"])
 
-        metrics = evaluate(model, val_dl, device)     
-        
-        print(f"Epoch {epoch} validation – Loss: {metrics['loss']:.4f}, Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
+        # Skip loss computation for validation to speed up evaluation
+        metrics = evaluate(model, val_dl, device, compute_loss=False)
+
+        # Handle the case where loss might be None
+        loss_str = f"Loss: {metrics['loss']:.4f}, " if metrics['loss'] is not None else ""
+        print(f"Epoch {epoch} validation – {loss_str}Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1']:.4f}, "
               f"AUC: {metrics['roc_auc']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, MCC: {metrics['mcc']:.4f}")
         # Record validation metrics
         history["val_loss"].append(metrics["loss"])
@@ -355,7 +360,7 @@ def train(config_param):
         history["val_precision"].append(metrics["precision"])
         history["val_recall"].append(metrics["recall"])
         history["val_mcc"].append(metrics["mcc"])
-        
+
         # Print elapsed time per epoch
         epoch_end_time = time.time()
         epoch_duration = epoch_end_time - epoch_start_time
@@ -366,7 +371,7 @@ def train(config_param):
 
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
-            
+
             # Generate checkpoint path using the new utility function
             # A timestamp for this specific save operation
             current_timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -381,7 +386,7 @@ def train(config_param):
                 timestamp_str=current_timestamp,
                 extension="pt"
             )
-            
+
             output_dir = Path(model_config['output_dir'])
             output_dir.mkdir(parents=True, exist_ok=True)
             checkpoint_data = {
@@ -411,7 +416,7 @@ def train(config_param):
         timestamp_str=metrics_timestamp,
         extension="json"
     )
-    
+
     # Ensure output directory for metrics exists (though generate_artifact_name places it in base_output_dir)
     Path(model_config['output_dir']).mkdir(parents=True, exist_ok=True)
 
@@ -421,10 +426,12 @@ def train(config_param):
 
 
 if __name__ == "__main__":
-    
+
     # Load config
     config = load_config()
-    
+    OPTIMIZER = config['training']['optimizer']
+    OPTIMIZER = eval(OPTIMIZER)
+
     # Passed args override config.yaml
     p = argparse.ArgumentParser()
     p.add_argument("--model_name", default=None, type=str, help="HF ModernBERT checkpoint")
@@ -451,7 +458,7 @@ if __name__ == "__main__":
     num_cores = multiprocessing.cpu_count()
     torch.set_num_threads(num_cores)
     torch.set_num_interop_threads(min(4, num_cores))
-    
+
     # For CUDA operations
     if torch.cuda.is_available():
         # Enable TF32 precision (on Ampere GPUs)
@@ -459,5 +466,5 @@ if __name__ == "__main__":
         torch.backends.cudnn.allow_tf32 = True
         # Set fastest algorithm
         torch.backends.cudnn.benchmark = True
-    
+
     train(config)
