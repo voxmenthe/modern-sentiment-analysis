@@ -1,0 +1,12 @@
+**/__pycache__
+checkpoints
+.DS_Store
+checkpoints
+checkpoints_deberta
+**/__pycache__
+new_output_dir
+sent
+test_output
+plots/Modern*.png
+fl_mb_plots
+PROJECT_PLANS

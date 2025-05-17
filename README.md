@@ -38,6 +38,9 @@ There is a simple web demo space hosted on Hugging Face Spaces at this link that
 
 2.  **Create a virtual environment (recommended):**
     ```bash
+    curl -fsSL https://pyenv.run | bash # install pyenv
+    pyenv install 3.12.10 # install python 3.12.10
+    pyenv local 3.12.10 # set python 3.12.10 as the local version
     python -m venv my_venv
     source my_venv/bin/activate
     ```
@@ -60,14 +63,14 @@ First set your desired configuration in `src/config.yaml` or pass command line a
 Run the training script from the root directory:
 
 ```bash
-python src/train.py
+python -m src.train 
 ```
 
 Other examples:
 
 ```bash
-python src/train.py --model_name "answerdotai/ModernBERT-base" --epochs 3
-python src/train.py --model_name "answerdotai/ModernBERT-large" --epochs 3 --batch_size 16
+python -m src.train --model_name "answerdotai/ModernBERT-base" --epochs 3
+python -m src.train --model_name "answerdotai/ModernBERT-large" --epochs 3 --batch_size 16
 ```
 
 -   The script will load configuration from `src/config.yaml`.
@@ -127,7 +130,7 @@ Once a model is trained, it will generate a `metrics.json` file in the directory
 To run the visualization script, run the following command:
 
 ```bash
-python src/visualization.py --metrics-file <path_to_metrics_json> --checkpoint <path_to_checkpoint> --config <path_to_config> --output_dir <path_to_output_dir>
+python -m src.visualization --metrics-file <path_to_metrics_json> --config <path_to_config> --output_dir <path_to_output_dir> # --checkpoint <path_to_checkpoint> # for confusion matrix
 ```
 
 **Note that <path_to_metrics_json> is needed for most of the visualizations and <path_to_checkpoint> is needed for the confusion matrix.**
