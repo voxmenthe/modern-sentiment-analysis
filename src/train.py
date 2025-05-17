@@ -50,11 +50,18 @@ torch.set_float32_matmul_precision('high')
 # Enable PyTorch 2.0+ optimizations for CUDA
 if use_cuda:
     # Enable all PyTorch 2.0+ optimizations
-    torch._dynamo.config.capture_scalar_outputs = True
-    torch._inductor.config.triton.cudagraphs = True
-    torch._inductor.config.epilogue_fusion = True
-    torch._inductor.config.coordinate_descent_tuning = True
-    torch._inductor.config.shape_padding = True
+    # torch._dynamo.config.capture_scalar_outputs = True
+    #torch._inductor.config.triton.cudagraphs = True
+    # torch._inductor.config.epilogue_fusion = True
+    # torch._inductor.config.coordinate_descent_tuning = True
+    # torch._inductor.config.shape_padding = True
+
+    # Enable TF32 precision (on Ampere GPUs)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # Set fastest algorithm
+    torch.backends.cudnn.benchmark = True
+
 
 def load_config(config_path="src/config.yaml"):
     """Loads configuration from a YAML file."""
@@ -478,13 +485,5 @@ if __name__ == "__main__":
     num_cores = multiprocessing.cpu_count()
     torch.set_num_threads(num_cores)
     torch.set_num_interop_threads(min(4, num_cores))
-
-    # For CUDA operations
-    if torch.cuda.is_available():
-        # Enable TF32 precision (on Ampere GPUs)
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        # Set fastest algorithm
-        torch.backends.cudnn.benchmark = True
 
     train(config)
