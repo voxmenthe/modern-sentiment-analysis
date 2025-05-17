@@ -9,8 +9,8 @@ model:
       label_smoothing_epsilon: 0.1   # Default: 0.05. Amount of label smoothing.
 
   output_dir: "checkpoints"
-  max_length: 888 # Reduced from 880 for better efficiency while maintaining accuracy
-  dropout: 0.07 # This will be applied to deberta_config.hidden_dropout_prob
+  max_length: 896 # Reduced from 880 for better efficiency while maintaining accuracy
+  dropout: 0.08 # This will be applied to deberta_config.hidden_dropout_prob
 
 # --- Pooling Strategy Options --- #
 # Options: "cls", "mean", "cls_mean_concat", "weighted_layer", "cls_weighted_concat"
@@ -28,10 +28,10 @@ data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 18
+  epochs: 32
   batch_size: 40 # Increased from 16 for better throughput
-  lr: 4e-6 # Learning rate
-  weight_decay_rate: 0.014 # Weight decay for regularization
+  lr: 3e-6 # Learning rate
+  weight_decay_rate: 0.012 # Weight decay for regularization
   resume_from_checkpoint: "" # Path to checkpoint file, or empty to not resume
   log_step_metrics: true  # Set to true to enable step-level metrics
   optimizer: "AdamW" # Using optimized Muon optimizer for better performance
@@ -42,7 +42,7 @@ inference:
   # Default path, can be overridden
   model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" # available in the HF space files - can be downloaded from there see readme
   # Using the same max_length as training for consistency
-  max_length: 888 # Should ideally match training max_length
+  max_length: 896 # Should ideally match training max_length
 
 # "answerdotai/ModernBERT-base"
 # "answerdotai/ModernBERT-large"
