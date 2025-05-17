@@ -29,13 +29,20 @@ from transformers import (
 from sklearn.metrics import accuracy_score, f1_score
 from src.data_processing import download_and_prepare_datasets, create_dataloaders
 from src.evaluation import evaluate
-#from torch.optim import AdamW
+from torch.optim import AdamW
 from heavyball import ForeachAdamW, ForeachMuon
 from torch.optim.lr_scheduler import LinearLR
 from torch.amp import autocast, GradScaler
 from src.utils import generate_artifact_name
 
 use_cuda = torch.cuda.is_available()
+
+OPTIMIZER_MAP = {
+    "AdamW": AdamW,
+    "ForeachAdamW": ForeachAdamW,
+    "ForeachMuon": ForeachMuon,
+    # Add other optimizers here as needed, e.g., from torch.optim
+}
 
 # Enable high precision matrix multiplication for better performance
 torch.set_float32_matmul_precision('high')
@@ -81,8 +88,8 @@ def train(config_param):
         print(f"INFO: Loading tokenizer for ModernBERT model: {model_config['name']} using AutoTokenizer.")
         tokenizer = AutoTokenizer.from_pretrained(model_config['name'])
     else:
-        print(f"WARNING: Unknown model_type '{model_type}'. Falling back to AutoTokenizer with use_fast=False.")
-        tokenizer = AutoTokenizer.from_pretrained(model_config['name'], use_fast=False)
+        # Raise an error for unsupported model types during tokenizer selection
+        raise ValueError(f"Unsupported model_type for tokenizer: {model_type}. Choose 'modernbert' or 'deberta'.")
 
     dsets = download_and_prepare_datasets(tokenizer, max_length=model_config['max_length'])
     train_dl, val_dl = create_dataloaders(dsets, tokenizer, training_config['batch_size'])
@@ -166,18 +173,8 @@ def train(config_param):
         model = torch.compile(model, mode="reduce-overhead")
 
 
-    optimizer = OPTIMIZER(
-        model.parameters(),
-        lr=float(training_config['lr']),
-        weight_decay=float(training_config['weight_decay_rate'])
-    )
-
-    lr_scheduler = LinearLR(
-        optimizer,
-        start_factor=1.0,
-        end_factor=0.0,
-        total_iters=training_config['epochs'] * len(train_dl),
-    )
+    # Optimizer and scheduler are now initialized after config is finalized (e.g., from checkpoint)
+    # So, the initial setup here is removed.
 
     best_f1 = 0.0
     start_epoch = 1
@@ -268,9 +265,13 @@ def train(config_param):
     data_config = config['data']
     training_config = config['training']
 
-    # From here, use model_config, data_config, training_config
+    # Initialize optimizer and scheduler ONCE here, after config is finalized
+    optimizer_name = training_config['optimizer']
+    if optimizer_name not in OPTIMIZER_MAP:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}. Available: {list(OPTIMIZER_MAP.keys())}")
+    OptimizerClass = OPTIMIZER_MAP[optimizer_name]
 
-    optimizer = OPTIMIZER(
+    optimizer = OptimizerClass(
         model.parameters(),
         lr=float(training_config['lr']),
         weight_decay=float(training_config['weight_decay_rate'])
@@ -309,6 +310,8 @@ def train(config_param):
         epoch_start_time = time.time()
         model.train()
         total_loss = 0.0
+
+        training_steps_start_time = time.time() # Record start time for training steps
         for step, batch in enumerate(train_dl, 1):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
@@ -343,12 +346,20 @@ def train(config_param):
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
-        # Compute and log training metrics - compute_loss=True for training metrics
+        # Calculate and print duration of training steps
+        training_steps_end_time = time.time()
+        training_steps_duration = training_steps_end_time - training_steps_start_time
+        ts_hours, ts_remainder = divmod(training_steps_duration, 3600)
+        ts_minutes, ts_seconds = divmod(ts_remainder, 60)
+        print(f"Epoch {epoch} training steps completed in {int(ts_hours):02d}:{int(ts_minutes):02d}:{int(ts_seconds):02d} (HH:MM:SS)")
+
+        # Compute and log training metrics (loss is from accumulated training steps)
         train_metrics = evaluate(model, train_dl, device, compute_loss=False)
-        print(f"Epoch {epoch} train – Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
+        avg_epoch_train_loss = total_loss / len(train_dl)
+        print(f"Epoch {epoch} train – Loss: {avg_epoch_train_loss:.4f}, Acc: {train_metrics['accuracy']:.4f}, F1: {train_metrics['f1']:.4f}, "
               f"AUC: {train_metrics['roc_auc']:.4f}, Precision: {train_metrics['precision']:.4f}, Recall: {train_metrics['recall']:.4f}, MCC: {train_metrics['mcc']:.4f}")
         history["epoch"].append(epoch)
-        history["train_loss"].append(total_loss / len(train_dl))
+        history["train_loss"].append(avg_epoch_train_loss)
         history["train_accuracy"].append(train_metrics["accuracy"])
         history["train_f1"].append(train_metrics["f1"])
         history["train_roc_auc"].append(train_metrics["roc_auc"])
@@ -440,8 +451,6 @@ if __name__ == "__main__":
 
     # Load config
     config = load_config()
-    OPTIMIZER = config['training']['optimizer']
-    OPTIMIZER = eval(OPTIMIZER)
 
     # Passed args override config.yaml
     p = argparse.ArgumentParser()
