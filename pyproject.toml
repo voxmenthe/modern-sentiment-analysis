@@ -37,6 +37,7 @@ pypdf = "*"
 tiktoken = "*"
 protobuf = "*"
 sentencepiece = "*"
+heavyball = "*"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "*"
