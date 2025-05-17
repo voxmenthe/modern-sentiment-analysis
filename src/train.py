@@ -302,6 +302,8 @@ def train(config_param):
         "val_loss": [], "val_accuracy": [], "val_f1": [], "val_roc_auc": [], "val_precision": [], "val_recall": [], "val_mcc": []
     }
 
+    accumulation_steps = training_config.get('gradient_accumulation_steps', 1)
+
     # The loop runs from determined start_epoch up to the total_epochs from the active config
     for epoch in range(start_epoch, training_config['epochs'] + 1):
         epoch_start_time = time.time()
@@ -316,19 +318,28 @@ def train(config_param):
                 with autocast('cuda'):
                     outputs = model(**batch)
                     loss = outputs.loss
-
+                    if accumulation_steps > 1:
+                        loss = loss / accumulation_steps
                 scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                lr_scheduler.step()
+
             else:
                 outputs = model(**batch)
                 loss = outputs.loss
-                loss.backward()
-                optimizer.step()
+                if accumulation_steps > 1:
+                    loss = loss / accumulation_steps
+
+            if (step % accumulation_steps == 0) or (step == len(train_dl)):
+                if use_cuda:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    optimizer.step()
+                
+                optimizer.zero_grad(set_to_none=True)
                 lr_scheduler.step()
 
-            total_loss += loss.item()
+            total_loss += loss.item() * accumulation_steps
             if step % 100 == 0:
                 print(f"Epoch {epoch} | Step {step}/{len(train_dl)} | Training Loss {total_loss/step:.4f}")
 
@@ -346,7 +357,7 @@ def train(config_param):
         history["train_mcc"].append(train_metrics["mcc"])
 
         # Skip loss computation for validation to speed up evaluation
-        metrics = evaluate(model, val_dl, device, compute_loss=False)
+        metrics = evaluate(model, val_dl, device, compute_loss=True)
 
         # Handle the case where loss might be None
         loss_str = f"Loss: {metrics['loss']:.4f}, " if metrics['loss'] is not None else ""

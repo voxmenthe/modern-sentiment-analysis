@@ -9,7 +9,7 @@ model:
       label_smoothing_epsilon: 0.1   # Default: 0.05. Amount of label smoothing.
 
   output_dir: "checkpoints"
-  max_length: 512 # Reduced from 880 for better efficiency while maintaining accuracy
+  max_length: 888 # Reduced from 880 for better efficiency while maintaining accuracy
   dropout: 0.07 # This will be applied to deberta_config.hidden_dropout_prob
 
 # --- Pooling Strategy Options --- #
@@ -36,6 +36,7 @@ training:
   log_step_metrics: true  # Set to true to enable step-level metrics
   optimizer: "ForeachMuon" # Using optimized Muon optimizer for better performance
   log_metrics_every_n_steps: 500 # Log metrics every N global training steps
+  gradient_accumulation_steps: 3 # Number of steps to accumulate gradients before updating parameters
 
 inference:
   # Default path, can be overridden
