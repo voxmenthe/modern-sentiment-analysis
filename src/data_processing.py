@@ -25,26 +25,20 @@ def download_and_prepare_datasets(tokenizer: AutoTokenizer, max_length: int = 25
         num_proc=max(1, os.cpu_count() // 2)  # Parallelize tokenization
     )
     tokenized = tokenized.rename_column("label", "labels")
+    tokenized.set_format(type="torch")
 
     # Pre-compute lengths during dataset preparation
     tokenized = tokenized.map(
-        lambda example: {"lengths": example["attention_mask"].sum(1).long()},
+        lambda example: {"lengths": example["attention_mask"].sum(dim=1).long()},
         batched=True,
         batch_size=1000,
         num_proc=max(1, os.cpu_count() // 2)
     )
 
-    tokenized.set_format(type="torch")
     return tokenized
 
 
 def create_dataloaders(dset: DatasetDict, tokenizer: AutoTokenizer, batch_size: int = 16):
-
-    # Pre-compute lengths during dataset preparation
-    dset = dset.map(
-        lambda example: {"lengths": example["attention_mask"].sum(dim=1).long()},
-        num_proc=max(1, os.cpu_count() // 2)
-    )
 
     # Optimize for GPU efficiency by padding to multiples of 8
     collator = DataCollatorWithPadding(

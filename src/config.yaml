@@ -28,7 +28,7 @@ data:
   # No specific data paths needed as we use HF datasets at the moment
 
 training:
-  epochs: 16
+  epochs: 18
   batch_size: 32 # Increased from 16 for better throughput
   lr: 4e-6 # Learning rate
   weight_decay_rate: 0.014 # Weight decay for regularization
@@ -42,9 +42,7 @@ inference:
   # Default path, can be overridden
   model_path: "checkpoints/mean_epoch5_0.9575acc_0.9575f1.pt" # available in the HF space files - can be downloaded from there see readme
   # Using the same max_length as training for consistency
-  max_length: 512 # Reduced to match training max_length
-
-
+  max_length: 888 # Should ideally match training max_length
 
 # "answerdotai/ModernBERT-base"
 # "answerdotai/ModernBERT-large"

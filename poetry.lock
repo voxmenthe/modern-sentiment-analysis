@@ -1444,6 +1444,26 @@ files = [
 ]
 
 [[package]]
+name = "heavyball"
+version = "1.7.2"
+description = "Efficient Optimizers"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "heavyball-1.7.2-py3-none-any.whl", hash = "sha256:6acc6ba4221db8f96d56c37c21b4882725088179ab03216363e435699026728d"},
+    {file = "heavyball-1.7.2.tar.gz", hash = "sha256:0aa07f06d00484876cbaf0800ac727e2ba1af355f4c69710ae626f794fc6663e"},
+]
+
+[package.dependencies]
+numpy = "*"
+opt-einsum = ">=3.4.0"
+torch = ">=2.1.0"
+
+[package.extras]
+dev = ["hyperopt", "matplotlib", "pandas", "pre-commit", "pytest", "ruff", "seaborn", "typer"]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 description = "A minimal low-level HTTP client."
@@ -2969,6 +2989,18 @@ files = [
     {file = "nvidia_nvtx_cu12-12.6.77-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b90bed3df379fa79afbd21be8e04a0314336b8ae16768b58f2d34cb1d04cd7d2"},
     {file = "nvidia_nvtx_cu12-12.6.77-py3-none-manylinux2014_x86_64.whl", hash = "sha256:6574241a3ec5fdc9334353ab8c479fe75841dbe8f4532a8fc97ce63503330ba1"},
     {file = "nvidia_nvtx_cu12-12.6.77-py3-none-win_amd64.whl", hash = "sha256:2fb11a4af04a5e6c84073e6404d26588a34afd35379f0855a99797897efa75c0"},
+]
+
+[[package]]
+name = "opt-einsum"
+version = "3.4.0"
+description = "Path optimization of einsum functions."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "opt_einsum-3.4.0-py3-none-any.whl", hash = "sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd"},
+    {file = "opt_einsum-3.4.0.tar.gz", hash = "sha256:96ca72f1b886d148241348783498194c577fa30a8faac108586b14f1ba4473ac"},
 ]
 
 [[package]]
@@ -5519,4 +5551,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "d50f8a6e4bd98372703a402a58a35e08304f94c20de84d0c4dfb3f4cdaa93a90"
+content-hash = "d6b5cc3b7b18eb2f26c0b1c26ead33111929090455031c8871be562ae6545f3c"
