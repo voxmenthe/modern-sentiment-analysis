@@ -57,8 +57,8 @@ if use_cuda:
     # torch._inductor.config.shape_padding = True
 
     # Enable TF32 precision (on Ampere GPUs)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+    # torch.backends.cuda.matmul.allow_tf32 = True
+    # torch.backends.cudnn.allow_tf32 = True
     # Set fastest algorithm
     torch.backends.cudnn.benchmark = True
 
@@ -177,7 +177,7 @@ def train(config_param):
 
     # Compile model with optimized mode for better performance
     if use_cuda:
-        model = torch.compile(model, mode="reduce-overhead")
+        model = torch.compile(model) # , mode="reduce-overhead")
 
 
     # Optimizer and scheduler are now initialized after config is finalized (e.g., from checkpoint)
@@ -278,11 +278,20 @@ def train(config_param):
         raise ValueError(f"Unsupported optimizer: {optimizer_name}. Available: {list(OPTIMIZER_MAP.keys())}")
     OptimizerClass = OPTIMIZER_MAP[optimizer_name]
 
-    optimizer = OptimizerClass(
-        model.parameters(),
-        lr=float(training_config['lr']),
-        weight_decay=float(training_config['weight_decay_rate'])
-    )
+    if optimizer_name == "AdamW":
+        optimizer = OptimizerClass(
+            model.parameters(),
+            lr=float(training_config['lr']),
+            weight_decay=float(training_config['weight_decay_rate']),
+            fused=True
+        )
+    else:
+        optimizer = OptimizerClass(
+            model.parameters(),
+            lr=float(training_config['lr']),
+            weight_decay=float(training_config['weight_decay_rate'])
+        )
+
     lr_scheduler = LinearLR(
         optimizer,
         start_factor=1.0,
