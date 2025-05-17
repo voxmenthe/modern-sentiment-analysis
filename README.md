@@ -38,6 +38,9 @@ There is a simple web demo space hosted on Hugging Face Spaces at this link that
 
 2.  **Create a virtual environment (recommended):**
     ```bash
+    curl -fsSL https://pyenv.run | bash # install pyenv
+    pyenv install 3.12.10 # install python 3.12.10
+    pyenv local 3.12.10 # set python 3.12.10 as the local version
     python -m venv my_venv
     source my_venv/bin/activate
     ```
