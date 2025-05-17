@@ -144,3 +144,55 @@ class GranularMoELayer(nn.Module):
 #     # activated_mask = torch.zeros_like(gate_scores, dtype=dummy_input.dtype)
 #     # activated_mask.scatter_(-1, topk_indices, 1.0)
 #     # print(f"Sum of activated mask per batch item: {torch.sum(activated_mask, dim=-1)}")
+
+
+class MoEClassifierHead(nn.Module):
+    """
+    A classifier head that uses a configurable number of GranularMoELayers.
+    Each MoE block consists of LayerNorm, GranularMoELayer, and Dropout,
+    with a skip connection. The GranularMoELayer uses ReLU activation
+    internally for its experts.
+    The number of MoE blocks defaults to 2.
+    """
+    def __init__(self, hidden_size: int, num_labels: int, dropout_prob: float,
+                 num_experts: int, num_active_experts: int, expert_hidden_size: int,
+                 num_hidden_layers: int = 2): # Configurable number of layers
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+
+        self.moe_blocks = nn.ModuleList()
+        for _ in range(num_hidden_layers):
+            self.moe_blocks.append(
+                nn.ModuleDict({
+                    'norm': nn.LayerNorm(hidden_size),
+                    'moe': GranularMoELayer(
+                        input_size=hidden_size,
+                        output_size=hidden_size, # Maintain dimensionality for skip and stacking
+                        num_experts=num_experts,
+                        num_active_experts=num_active_experts,
+                        expert_hidden_size=expert_hidden_size
+                    ),
+                    # GranularMoELayer uses ReLU activation within its experts.
+                    'dropout': nn.Dropout(dropout_prob)
+                })
+            )
+        
+        # Output Layer (same as original ClassifierHead)
+        self.out_proj = nn.Linear(hidden_size, num_labels)
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        x = features
+
+        for block in self.moe_blocks:
+            identity = x
+            
+            processed_x = block['norm'](x)
+            moe_output = block['moe'](processed_x)
+            # moe_output incorporates activation (ReLU) from the experts within GranularMoELayer
+            dropped_output = block['dropout'](moe_output)
+            x = dropped_output + identity  # Skip connection
+
+        # Output Layer
+        logits = self.out_proj(x)
+        return logits
