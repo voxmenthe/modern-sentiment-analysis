@@ -16,4 +16,6 @@ python -m ipykernel install --user --name=modern-sentiment-analysis --display-na
 
 echo "Jupyter kernel 'modern-sentiment-analysis' has been installed."
 
+pip install -e .
+
 echo "Project setup complete!"

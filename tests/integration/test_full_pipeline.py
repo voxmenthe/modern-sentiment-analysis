@@ -123,12 +123,20 @@ class TestFullTrainingPipeline:
         def tokenize_func(examples):
             # This tokenization needs to match what download_and_prepare_datasets does regarding labels
             # It should produce 'input_ids', 'attention_mask', and 'labels' (as float for SentimentWeightedLoss)
-            tokenized_batch = tokenizer(examples['text'], padding='max_length', truncation=True, max_length=max_len)
-            # The train.py's download_and_prepare_datasets converts labels to float for the custom losses.
-            tokenized_batch['labels'] = [float(l) for l in examples['label']]
+            tokenized_batch = tokenizer(examples['text'], padding='max_length', truncation=True, max_length=max_len, return_tensors="pt") # Ensure tensors for sum
+            tokenized_batch['labels'] = torch.tensor([float(l) for l in examples['label']]) # Ensure labels are tensors
+            # Calculate lengths from attention_mask
+            if 'attention_mask' in tokenized_batch:
+                tokenized_batch['lengths'] = tokenized_batch['attention_mask'].sum(dim=1)
+            else: # Fallback if no attention mask (should not happen with padding='max_length')
+                tokenized_batch['lengths'] = torch.tensor([len(input_ids) for input_ids in tokenized_batch['input_ids']])
             return tokenized_batch
 
         tokenized_dsets = raw_dsets.map(tokenize_func, batched=True, remove_columns=['text', 'label'])
+        # The map function with batched=True will return lists of tensors if not handled, 
+        # but set_format will convert them. Let's ensure features are already tensors.
+        # However, the tokenize_func above now returns tensors directly for input_ids, attention_mask, labels, lengths.
+        # So, the output of .map() should be dicts of tensors when batched.
         tokenized_dsets.set_format("torch")
         mock_download_and_prepare_datasets.return_value = tokenized_dsets
 

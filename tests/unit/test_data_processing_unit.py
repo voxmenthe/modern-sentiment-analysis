@@ -94,32 +94,40 @@ def sample_raw_dataset():
 @pytest.fixture
 def sample_tokenized_dataset():
     '''Fixture for a sample tokenized dataset. Now with 4 train samples.'''
+    train_input_ids = torch.tensor([
+        [101, 2054, 2022, 102], [101, 2064, 2022, 102],
+        [101, 2000, 2001, 102], [101, 2002, 2003, 102]
+    ])
+    train_attention_mask = torch.tensor([
+        [1, 1, 1, 1], [1, 1, 1, 1],
+        [1, 1, 1, 1], [1, 1, 1, 1]
+    ])
     train_data = {
-        'input_ids': torch.tensor([
-            [101, 2054, 2022, 102], [101, 2064, 2022, 102],
-            [101, 2000, 2001, 102], [101, 2002, 2003, 102]
-        ]),
-        'attention_mask': torch.tensor([
-            [1, 1, 1, 1], [1, 1, 1, 1],
-            [1, 1, 1, 1], [1, 1, 1, 1]
-        ]),
-        'labels': torch.tensor([0, 1, 0, 1])
+        'input_ids': train_input_ids,
+        'attention_mask': train_attention_mask,
+        'labels': torch.tensor([0, 1, 0, 1], dtype=torch.float32),
+        'lengths': train_attention_mask.sum(dim=1).long()
     }
+    test_input_ids = torch.tensor([[101, 2054, 2023, 102], [101, 2064, 2023, 102]])
+    test_attention_mask = torch.tensor([[1, 1, 1, 1], [1, 1, 1, 1]])
     test_data = {
-        'input_ids': torch.tensor([[101, 2054, 2023, 102], [101, 2064, 2023, 102]]),
-        'attention_mask': torch.tensor([[1, 1, 1, 1], [1, 1, 1, 1]]),
-        'labels': torch.tensor([1, 0])
+        'input_ids': test_input_ids,
+        'attention_mask': test_attention_mask,
+        'labels': torch.tensor([1, 0], dtype=torch.float32),
+        'lengths': test_attention_mask.sum(dim=1).long()
     }
     train_dataset = Dataset.from_dict(train_data).with_format("torch")
     test_dataset = Dataset.from_dict(test_data).with_format("torch")
     return DatasetDict({'train': train_dataset, 'test': test_dataset})
 
 
+@patch('src.data_processing.os.cpu_count')
 @patch('src.data_processing.load_dataset')
-def test_download_and_prepare_datasets(mock_load_dataset, mock_tokenizer, sample_raw_dataset):
+def test_download_and_prepare_datasets(mock_os_cpu_count, mock_load_dataset, mock_tokenizer, sample_raw_dataset):
+    mock_os_cpu_count.return_value = 1
     mock_load_dataset.return_value = sample_raw_dataset
     max_len = 128
-    tokenized_dset = download_and_prepare_datasets(tokenizer=mock_tokenizer, max_length=max_len)
+    tokenized_dset = download_and_prepare_datasets(tokenizer=mock_tokenizer, tokenizer_max_length=max_len)
 
     mock_load_dataset.assert_called_once_with("imdb")
     # Check that the mock_tokenizer itself was called, which will trigger its side_effect.
@@ -135,7 +143,9 @@ def test_download_and_prepare_datasets(mock_load_dataset, mock_tokenizer, sample
     assert tokenized_dset["train"].format["type"] == "torch"
     assert tokenized_dset["test"].format["type"] == "torch"
 
-def test_create_dataloaders(sample_tokenized_dataset, mock_tokenizer):
+@patch('src.data_processing.os.cpu_count')
+def test_create_dataloaders(mock_os_cpu_count, sample_tokenized_dataset, mock_tokenizer):
+    mock_os_cpu_count.return_value = 1
     batch_size = 4
     train_dl, val_dl = create_dataloaders(dset=sample_tokenized_dataset, tokenizer=mock_tokenizer, batch_size=batch_size)
 

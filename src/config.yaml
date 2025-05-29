@@ -25,6 +25,10 @@ pooling_strategy: "mean" # "mean" is typically faster than other strategies
 num_weighted_layers: 4 # Number of top BERT layers to use
 
 data:
+  enable_augmentation: false
+  truncation_percentage: 0.8  # e.g., 0.8 for 80% of original character length
+  truncation_method: ["suffix"] # List: "prefix", "suffix", "both_ends". Empty list means no augmentation.
+  apply_to_split: "train"     # Specifies which dataset split to augment (e.g., "train")
   # No specific data paths needed as we use HF datasets at the moment
 
 training:

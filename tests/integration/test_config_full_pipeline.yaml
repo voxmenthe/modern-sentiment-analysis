@@ -30,6 +30,7 @@ training:
   device: 'cpu' # Force CPU for integration test consistency
   gradient_accumulation_steps: 1
   max_grad_norm: 1.0
+  optimizer: AdamW
 
 logging:
   level: 'INFO'

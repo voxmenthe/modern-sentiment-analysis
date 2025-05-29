@@ -110,6 +110,7 @@ class TestSentimentFocalLoss:
         (0.0, 0.1), (2.0, 0.1), # Test label smoothing
     ])
     def test_basic_calculation(self, dummy_logits, dummy_targets, dummy_lengths, gamma_focal, label_smoothing_epsilon):
+        import math # Explicit import for diagnostics
         loss_fn = SentimentFocalLoss(gamma_focal=gamma_focal, label_smoothing_epsilon=label_smoothing_epsilon)
         loss = loss_fn(dummy_logits, dummy_targets, dummy_lengths)
         assert isinstance(loss, torch.Tensor)

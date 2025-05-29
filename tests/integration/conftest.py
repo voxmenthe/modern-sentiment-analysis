@@ -103,6 +103,7 @@ def test_config_for_components(tmp_path_factory):
             'epochs': 1,
             'lr': 1e-4,
             'weight_decay_rate': 0.01,
+            'optimizer': 'AdamW',
             'resume_from_checkpoint': None,
             'eval_steps': 10 # Not critical for most component tests here
         }
